@@ -1,3 +1,5 @@
+// ─── MapScreen.tsx ─────────────────────────────────────────────────────────────
+
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -38,7 +40,7 @@ const DEFAULT_REGION = {
 type Layer = 'workorders' | 'teams' | 'both';
 
 export default function MapScreen() {
-  const mapRef = useRef<MapView>(null);
+  const mapRef = useRef<InstanceType<typeof MapView>>(null);
   const [layer, setLayer] = useState<Layer>('both');
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
   const [teams, setTeams] = useState<TeamMember[]>([]);
