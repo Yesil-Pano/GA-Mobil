@@ -1,131 +1,315 @@
-// GA-Mobil/src/screens/WorkOrdersScreen.tsx
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  FlatList,
+  RefreshControl,
+  ActivityIndicator,
+  Alert,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { workOrdersApi } from '../services/api';
+import type { WorkOrder, WorkOrdersStackParamList } from '../types';
+
+type NavProp = NativeStackNavigationProp<WorkOrdersStackParamList, 'WorkOrdersList'>;
+
+// ─── Status badge colour map ──────────────────────────────────────────────────
+const STATUS_COLORS: Record<string, string> = {
+  'Bekliyor':    '#F59E0B',
+  'Devam Ediyor': '#3B82F6',
+  'Tamamlandı':  '#22C55E',
+  'İptal':       '#EF4444',
+};
+
+function statusColor(status: string): string {
+  return STATUS_COLORS[status] ?? '#64748B';
+}
+
+// ─── Work order card ──────────────────────────────────────────────────────────
+interface CardProps {
+  order: WorkOrder;
+  index: number;
+  onPress: () => void;
+}
+
+function WorkOrderCard({ order, index, onPress }: CardProps) {
+  const badgeColor = statusColor(order.status);
+  return (
+    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.85}>
+      <View style={[styles.cardAccent, { backgroundColor: badgeColor }]} />
+      <View style={styles.cardBody}>
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardIndex}>#{index + 1}</Text>
+          <View style={[styles.badge, { backgroundColor: badgeColor + '28', borderColor: badgeColor }]}>
+            <Text style={[styles.badgeText, { color: badgeColor }]}>{order.status ?? 'Bekliyor'}</Text>
+          </View>
+        </View>
+
+        <Text style={styles.cardTitle} numberOfLines={1}>
+          {order.customerName || order.title || 'İsimsiz İş Emri'}
+        </Text>
+
+        <View style={styles.cardRow}>
+          <Ionicons name="construct-outline" size={13} color="#94A3B8" />
+          <Text style={styles.cardMeta}>{order.type ?? '-'} · {order.category ?? '-'}</Text>
+        </View>
+        <View style={styles.cardRow}>
+          <Ionicons name="alert-circle-outline" size={13} color="#94A3B8" />
+          <Text style={styles.cardMeta}>Öncelik: {order.priority ?? 'Orta'}</Text>
+        </View>
+        <View style={styles.cardRow}>
+          <Ionicons name="calendar-outline" size={13} color="#94A3B8" />
+          <Text style={styles.cardMeta}>{order.startDate ?? '-'} → {order.endDate ?? '-'}</Text>
+        </View>
+        {!!order.address && (
+          <View style={styles.cardRow}>
+            <Ionicons name="location-outline" size={13} color="#94A3B8" />
+            <Text style={styles.cardMeta} numberOfLines={1}>{order.address}</Text>
+          </View>
+        )}
+
+        <View style={styles.cardFooter}>
+          <Text style={styles.assignedText}>
+            <Text style={styles.assignedLabel}>Atanan: </Text>
+            {order.assignedToUserName ?? 'Atanmamış'}
+          </Text>
+          <Ionicons name="chevron-forward" size={18} color="#F97316" />
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function WorkOrdersScreen() {
-  const [activeTab, setActiveTab] = useState('is_emri'); // 'is_emri' | 'bolgesel'
+  const navigation = useNavigation<NavProp>();
+  const [orders, setOrders] = useState<WorkOrder[]>([]);
+  const [filtered, setFiltered] = useState<WorkOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [search, setSearch] = useState('');
+  const [activeFilter, setActiveFilter] = useState<string | null>(null);
+
+  const fetchOrders = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const { data } = await workOrdersApi.getAll();
+      setOrders(data);
+      applyFilter(data, search, activeFilter);
+    } catch (err: any) {
+      Alert.alert('Hata', 'İş emirleri yüklenemedi. Lütfen bağlantınızı kontrol edin.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [search, activeFilter]);
+
+  useEffect(() => { fetchOrders(); }, []);
+
+  const applyFilter = (data: WorkOrder[], q: string, status: string | null) => {
+    let result = data;
+    if (q.trim()) {
+      const lower = q.toLowerCase();
+      result = result.filter(
+        (o) =>
+          o.customerName?.toLowerCase().includes(lower) ||
+          o.title?.toLowerCase().includes(lower) ||
+          o.address?.toLowerCase().includes(lower) ||
+          o.type?.toLowerCase().includes(lower),
+      );
+    }
+    if (status) {
+      result = result.filter((o) => o.status === status);
+    }
+    setFiltered(result);
+  };
+
+  const handleSearch = (text: string) => {
+    setSearch(text);
+    applyFilter(orders, text, activeFilter);
+  };
+
+  const handleFilterToggle = (status: string) => {
+    const next = activeFilter === status ? null : status;
+    setActiveFilter(next);
+    applyFilter(orders, search, next);
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchOrders(true);
+  };
+
+  const statusFilters = ['Bekliyor', 'Devam Ediyor', 'Tamamlandı', 'İptal'];
+
+  if (loading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#F97316" />
+        <Text style={styles.loadingText}>İş emirleri yükleniyor...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      {/* ÜST ARAMA VE FİLTRE BAR'I */}
-      <View style={styles.topBar}>
-        <TouchableOpacity style={styles.iconButton}><Ionicons name="list" size={24} color="#fff" /></TouchableOpacity>
-        <TouchableOpacity style={styles.iconButton}><Ionicons name="grid-outline" size={24} color="#fff" /></TouchableOpacity>
-        
-        <View style={styles.searchContainer}>
-          <Ionicons name="search" size={20} color="#94A3B8" style={{ paddingLeft: 10 }} />
-          <TextInput 
-            style={styles.searchInput} 
-            placeholder="İş Emri Ara" 
-            placeholderTextColor="#94A3B8"
+      {/* ── Search bar ─────────────────────────────── */}
+      <View style={styles.searchBar}>
+        <Ionicons name="search" size={18} color="#94A3B8" style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="İş emri, müşteri veya adres ara..."
+          placeholderTextColor="#94A3B8"
+          value={search}
+          onChangeText={handleSearch}
+          returnKeyType="search"
+        />
+        {search.length > 0 && (
+          <TouchableOpacity onPress={() => handleSearch('')}>
+            <Ionicons name="close-circle" size={18} color="#94A3B8" />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* ── Status filter chips ─────────────────────── */}
+      <View style={styles.filterRow}>
+        {statusFilters.map((s) => (
+          <TouchableOpacity
+            key={s}
+            style={[
+              styles.chip,
+              activeFilter === s && { backgroundColor: statusColor(s), borderColor: statusColor(s) },
+            ]}
+            onPress={() => handleFilterToggle(s)}
+          >
+            <Text style={[styles.chipText, activeFilter === s && styles.chipTextActive]}>
+              {s}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* ── Counter ────────────────────────────────── */}
+      <View style={styles.countRow}>
+        <Text style={styles.countText}>{filtered.length} iş emri</Text>
+        <TouchableOpacity onPress={() => fetchOrders(true)}>
+          <Ionicons name="refresh-outline" size={18} color="#F97316" />
+        </TouchableOpacity>
+      </View>
+
+      {/* ── List ───────────────────────────────────── */}
+      <FlatList
+        data={filtered}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item, index }) => (
+          <WorkOrderCard
+            order={item}
+            index={index}
+            onPress={() => navigation.navigate('WorkOrderDetail', { workOrder: item })}
           />
-        </View>
-        
-        <TouchableOpacity style={styles.filterButton}>
-          <Ionicons name="funnel" size={20} color="#fff" />
-        </TouchableOpacity>
-      </View>
-
-      {/* İKİLİ TAB MENÜSÜ */}
-      <View style={styles.tabContainer}>
-        <TouchableOpacity style={[styles.tab, activeTab === 'is_emri' && styles.activeTab]} onPress={() => setActiveTab('is_emri')}>
-          <Ionicons name="clipboard-outline" size={16} color={activeTab === 'is_emri' ? '#38BDF8' : '#94A3B8'} />
-          <Text style={[styles.tabText, activeTab === 'is_emri' && styles.activeTabText]}>İş Emri Listesi</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.tab, activeTab === 'bolgesel' && styles.activeTab]} onPress={() => setActiveTab('bolgesel')}>
-          <Ionicons name="map-outline" size={16} color={activeTab === 'bolgesel' ? '#38BDF8' : '#94A3B8'} />
-          <Text style={[styles.tabText, activeTab === 'bolgesel' && styles.activeTabText]}>Bölgesel İş Emri Listesi</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* FORM TİPİ SEÇİCİ */}
-      <View style={styles.dropdownContainer}>
-        <Text style={styles.dropdownText}>Trugo - Yeşil Pano İş Formu</Text>
-        <Ionicons name="chevron-down" size={20} color="#64748B" />
-      </View>
-
-      {/* İŞ EMRİ KARTLARI (KAYDIRILABİLİR ALAN) */}
-      <ScrollView style={{ flex: 1, padding: 10 }}>
-        
-        {/* KART 1: KAPALI GÖRÜNÜM (Görsel 094739 gibi) */}
-        <View style={styles.cardCollapsed}>
-          <View style={styles.cardBorderLeft} />
-          <Text style={styles.cardTitle} numberOfLines={1}>#1 - Adres: Bahçelievler Hızır Reis Cd. Mura...</Text>
-          <Ionicons name="alert-circle-outline" size={24} color="#38BDF8" />
-        </View>
-
-        {/* KART 2: AÇIK DETAYLI GÖRÜNÜM (Görsel 094750 gibi) */}
-        <View style={styles.cardExpanded}>
-          <View style={styles.cardBorderLeftExpanded} />
-          <View style={{ padding: 15 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={styles.expandedTitle}>#2 -</Text>
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <TouchableOpacity style={{ backgroundColor: '#F59E0B', padding: 8, borderRadius: 8 }}><Ionicons name="map-outline" size={20} color="#fff" /></TouchableOpacity>
-                <TouchableOpacity style={{ backgroundColor: '#0EA5E9', padding: 8, borderRadius: 8 }}><Ionicons name="location-outline" size={20} color="#fff" /></TouchableOpacity>
-              </View>
-            </View>
-
-            <Text style={styles.pointName}>Nokta Adı: Ankara Merkez İstasyon</Text>
-            
-            <View style={styles.detailsList}>
-              <Text style={styles.detailText}>Başlangıç Tarihi: 2026-06-01T09:00</Text>
-              <Text style={styles.detailText}>Bitiş Tarihi: 2026-06-30T18:00</Text>
-              <Text style={styles.detailText}>Açıklama: </Text>
-              <Text style={styles.detailText}>İş Tipi: Bakım</Text>
-              <Text style={styles.detailText}>İş Tamamlama Tipi: Atanmış</Text>
-              <Text style={styles.detailText}>İş Kategorisi: AG Bakım</Text>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={styles.detailText}>İş Öncelik Tipi: Orta</Text>
-                <TouchableOpacity style={{ backgroundColor: '#64748B', padding: 8, borderRadius: 8 }}><Ionicons name="image-outline" size={20} color="#fff" /></TouchableOpacity>
-              </View>
-            </View>
+        )}
+        contentContainerStyle={styles.listContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#F97316"
+            colors={['#F97316']}
+          />
+        }
+        ListEmptyComponent={
+          <View style={styles.empty}>
+            <Ionicons name="clipboard-outline" size={48} color="#334155" />
+            <Text style={styles.emptyText}>Hiç iş emri bulunamadı</Text>
+            {!!search && (
+              <Text style={styles.emptySubText}>"{search}" araması için sonuç yok</Text>
+            )}
           </View>
-
-          {/* İPTAL VE TAMAMLA BUTONLARI */}
-          <View style={{ flexDirection: 'row', borderTopWidth: 1, borderColor: '#E2E8F0' }}>
-            <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#1E293B' }]}>
-              <Text style={{ color: '#EF4444', fontWeight: 'bold', fontSize: 16 }}>İptal</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#4ADE80' }]}>
-              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>Tamamla</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#0EA5E9', flex: 0.3 }]}>
-              <Ionicons name="alert" size={24} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-      </ScrollView>
+        }
+      />
     </View>
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFFFF' },
-  topBar: { flexDirection: 'row', backgroundColor: '#1A233A', padding: 10, alignItems: 'center' },
-  iconButton: { padding: 5, marginRight: 5 },
-  searchContainer: { flex: 1, flexDirection: 'row', backgroundColor: '#334155', borderRadius: 8, alignItems: 'center', marginHorizontal: 10 },
-  searchInput: { flex: 1, color: '#fff', padding: 8 },
-  filterButton: { backgroundColor: '#38BDF8', padding: 8, borderRadius: 8 },
-  tabContainer: { flexDirection: 'row', backgroundColor: '#1A233A' },
-  tab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 15, borderBottomWidth: 3, borderColor: 'transparent' },
-  activeTab: { borderColor: '#38BDF8' },
-  tabText: { color: '#94A3B8', fontWeight: 'bold', marginLeft: 8, fontSize: 13 },
-  activeTabText: { color: '#38BDF8' },
-  dropdownContainer: { flexDirection: 'row', justifyContent: 'space-between', padding: 15, margin: 10, borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8 },
-  dropdownText: { color: '#475569', fontWeight: 'bold' },
-  
-  cardCollapsed: { flexDirection: 'row', backgroundColor: '#F8FAFC', marginVertical: 5, borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0', overflow: 'hidden', alignItems: 'center', paddingRight: 15 },
-  cardBorderLeft: { width: 8, height: '100%', backgroundColor: '#84CC16' },
-  cardTitle: { flex: 1, padding: 15, color: '#334155', fontWeight: '600' },
-  
-  cardExpanded: { backgroundColor: '#F8FAFC', marginVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0', overflow: 'hidden' },
-  cardBorderLeftExpanded: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 8, backgroundColor: '#84CC16' },
-  expandedTitle: { fontSize: 18, fontWeight: 'bold', color: '#1E293B' },
-  pointName: { fontSize: 16, fontWeight: 'bold', color: '#0369A1', marginTop: 10, marginBottom: 15 },
-  detailsList: { gap: 8 },
-  detailText: { fontSize: 14, color: '#334155', fontWeight: '600' },
-  actionButton: { flex: 1, padding: 15, justifyContent: 'center', alignItems: 'center' }
+  container: { flex: 1, backgroundColor: '#0F172A' },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0F172A' },
+  loadingText: { marginTop: 12, color: '#94A3B8', fontSize: 14 },
+
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1E293B',
+    marginHorizontal: 14,
+    marginTop: 12,
+    marginBottom: 8,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  searchIcon: { marginRight: 8 },
+  searchInput: { flex: 1, color: '#fff', fontSize: 14, paddingVertical: 10 },
+
+  filterRow: { flexDirection: 'row', paddingHorizontal: 14, gap: 8, marginBottom: 8 },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#334155',
+    backgroundColor: '#1E293B',
+  },
+  chipText: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
+  chipTextActive: { color: '#fff' },
+
+  countRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 6,
+  },
+  countText: { color: '#64748B', fontSize: 12 },
+
+  listContent: { paddingHorizontal: 14, paddingBottom: 20 },
+
+  card: {
+    flexDirection: 'row',
+    backgroundColor: '#1E293B',
+    borderRadius: 14,
+    marginBottom: 10,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  cardAccent: { width: 5 },
+  cardBody: { flex: 1, padding: 13 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  cardIndex: { color: '#94A3B8', fontSize: 12, fontWeight: '700' },
+  badge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  badgeText: { fontSize: 11, fontWeight: '700' },
+  cardTitle: { color: '#E2E8F0', fontSize: 15, fontWeight: '700', marginBottom: 6 },
+  cardRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 3, gap: 5 },
+  cardMeta: { color: '#94A3B8', fontSize: 12, flex: 1 },
+  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#334155' },
+  assignedText: { color: '#94A3B8', fontSize: 12 },
+  assignedLabel: { fontWeight: '700' },
+
+  empty: { alignItems: 'center', paddingTop: 60 },
+  emptyText: { color: '#475569', fontSize: 16, fontWeight: '600', marginTop: 14 },
+  emptySubText: { color: '#334155', fontSize: 13, marginTop: 6 },
 });

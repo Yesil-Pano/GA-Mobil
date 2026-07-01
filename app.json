@@ -4,19 +4,27 @@
     "slug": "GA-Mobil",
     "version": "1.0.0",
     "orientation": "portrait",
+    "newArchEnabled": true,
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.theobuz.GAMobil",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Görev Adamı saha operasyonları için konumunuzu kullanır.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Görev Adamı saha operasyonları ve güvenliğiniz için arka planda konumunuzu takip eder.",
+        "NSLocationAlwaysUsageDescription": "Görev Adamı saha operasyonları ve güvenliğiniz için arka planda konumunuzu takip eder.",
+        "UIBackgroundModes": ["location", "fetch"]
+      }
     },
     "android": {
+      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false,
       "package": "com.theobuz.GAMobil",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
@@ -35,7 +43,8 @@
         "expo-location",
         {
           "locationAlwaysAndWhenInUsePermission": "Görev Adamı saha operasyonları ve güvenliğiniz için arka planda konumunuzu takip eder.",
-          "isAndroidBackgroundLocationEnabled": true
+          "isAndroidBackgroundLocationEnabled": true,
+          "isIosBackgroundLocationEnabled": true
         }
       ]
     ],
