@@ -89,10 +89,14 @@ export interface TeamMember {
   position: [number, number];
 }
 
-export interface UpdateLocationDto {
-  teamUserId: string;
+/** Shape returned by GET /api/locations/team — canlı konum */
+export interface TeamMemberLocation {
+  userId: string;
+  fullName: string;
+  username: string;
   latitude: number;
   longitude: number;
+  updatedAt: string | null;
 }
 
 // ─── Navigation Param Lists ───────────────────────────────────────────────────
@@ -104,7 +108,7 @@ export type WorkOrdersStackParamList = {
 
 export type RootTabParamList = {
   'İş Emirleri': undefined;
-  'Harita': undefined;
+  'Harita': { focusLatitude?: number; focusLongitude?: number; focusLabel?: string } | undefined;
   'Genel Bakış': undefined;
   'Sohbet': undefined;
   'Profil': undefined;

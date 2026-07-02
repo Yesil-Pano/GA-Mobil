@@ -8,7 +8,7 @@ import type {
   FormLookups,
   UserProfile,
   TeamMember,
-  UpdateLocationDto,
+  TeamMemberLocation,
 } from '../types';
 
 // ─── Axios Instance ───────────────────────────────────────────────────────────
@@ -47,6 +47,10 @@ export const workOrdersApi = {
 
   /** POST /workorders */
   create: (data: CreateWorkOrderDto) => api.post<{ message: string }>('/workorders', data),
+
+  /** PATCH /workorders/{id}/status */
+  updateStatus: (id: string, status: string) =>
+    api.patch<{ message: string; status: string }>(`/workorders/${id}/status`, { status }),
 };
 
 // ─── Users API ────────────────────────────────────────────────────────────────
@@ -59,12 +63,20 @@ export const usersApi = {
 // ─── Teams / Map API ──────────────────────────────────────────────────────────
 
 export const teamsApi = {
-  /** GET /teams → TeamMember[] (field worker positions for map) */
+  /** GET /teams → TeamMember[] (field worker list) */
   getAll: () => api.get<TeamMember[]>('/teams'),
+};
 
-  /** POST /teams/update-location */
-  updateLocation: (data: UpdateLocationDto) =>
-    api.post<{ message: string }>('/teams/update-location', data),
+// ─── Location API ─────────────────────────────────────────────────────────────
+
+export const locationApi = {
+  /** PUT /locations/me — kendi konumunu güncelle */
+  updateMyLocation: (latitude: number, longitude: number) =>
+    api.put<void>('/locations/me', { latitude, longitude }),
+
+  /** GET /locations/team — aynı tenant'taki canlı konumlar */
+  getTeamLocations: () =>
+    api.get<TeamMemberLocation[]>('/locations/team'),
 };
 
 export default api;

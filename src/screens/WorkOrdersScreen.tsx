@@ -11,14 +11,26 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { workOrdersApi } from '../services/api';
 import type { WorkOrder, WorkOrdersStackParamList } from '../types';
 
 type NavProp = NativeStackNavigationProp<WorkOrdersStackParamList, 'WorkOrdersList'>;
 
-// ─── Status badge colour map ──────────────────────────────────────────────────
+// Aktif işler önde, tamamlanan/iptal en sonda
+const STATUS_ORDER: Record<string, number> = {
+  'Devam Ediyor': 0,
+  'Bekliyor':     1,
+  'Tamamlandı':   2,
+  'İptal':        3,
+};
+
+function sortOrders(list: WorkOrder[]) {
+  return [...list].sort(
+    (a, b) => (STATUS_ORDER[a.status] ?? 1) - (STATUS_ORDER[b.status] ?? 1),
+  );
+}
 const STATUS_COLORS: Record<string, string> = {
   'Bekliyor':    '#F59E0B',
   'Devam Ediyor': '#3B82F6',
@@ -112,6 +124,13 @@ export default function WorkOrdersScreen() {
 
   useEffect(() => { fetchOrders(); }, []);
 
+  // Detay ekranından geri dönüldüğünde (İşe Başla, Tamamla, İptal) listeyi yenile
+  useFocusEffect(
+    useCallback(() => {
+      fetchOrders(true);
+    }, [fetchOrders]),
+  );
+
   const applyFilter = (data: WorkOrder[], q: string, status: string | null) => {
     let result = data;
     if (q.trim()) {
@@ -127,7 +146,7 @@ export default function WorkOrdersScreen() {
     if (status) {
       result = result.filter((o) => o.status === status);
     }
-    setFiltered(result);
+    setFiltered(sortOrders(result));
   };
 
   const handleSearch = (text: string) => {

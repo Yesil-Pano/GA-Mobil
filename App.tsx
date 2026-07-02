@@ -5,6 +5,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
+import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 
 // ─── Screens ──────────────────────────────────────────────────────────────────
@@ -15,6 +16,10 @@ import MapScreen from './src/screens/MapScreen';
 import OverviewScreen from './src/screens/OverviewScreen';
 import ChatScreen from './src/screens/ChatScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
+
+// ─── Arka plan konum görevi — import yalnızca TaskManager'a kaydettirmek için ─
+import './src/tasks/locationTask';
+import { LOCATION_TASK_NAME, pushLocationToBackend } from './src/tasks/locationTask';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 import type { WorkOrdersStackParamList, RootTabParamList } from './src/types';
@@ -34,8 +39,11 @@ function WorkOrdersNavigator() {
 }
 
 // ─── App ──────────────────────────────────────────────────────────────────────
+const FOREGROUND_INTERVAL = 5 * 60 * 1000; // 5 dakika (Expo Go fallback)
+
 export default function App() {
   const [authState, setAuthState] = useState<'loading' | 'authenticated' | 'unauthenticated'>('loading');
+  const foregroundTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => { checkLoginStatus(); }, []);
 
@@ -43,8 +51,6 @@ export default function App() {
     try {
       const token      = await SecureStore.getItemAsync('user_token');
       const rememberMe = await SecureStore.getItemAsync('remember_me');
-
-      // Auto-login only if user chose "remember me" and a token is stored
       if (token && rememberMe === 'true') {
         setAuthState('authenticated');
       } else {
@@ -58,12 +64,83 @@ export default function App() {
   const handleLoginSuccess = () => setAuthState('authenticated');
 
   const handleLogout = async () => {
+    stopForegroundTimer();
+    await stopBackgroundLocation();
     await SecureStore.deleteItemAsync('user_token');
     await SecureStore.deleteItemAsync('user_id');
     await SecureStore.deleteItemAsync('user_name');
     await SecureStore.deleteItemAsync('remember_me');
     setAuthState('unauthenticated');
   };
+
+  // ── Konum gönder (arka plan görevinden bağımsız, her zaman çalışır) ──────────
+  const sendCurrentLocation = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return;
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      await pushLocationToBackend(loc.coords.latitude, loc.coords.longitude);
+    } catch (err) {
+      console.warn('[App] Anlık konum gönderilemedi:', err);
+    }
+  };
+
+  // ── Ön plan timer — Expo Go'da arka plan görevi çalışmadığında devreye girer ─
+  const startForegroundTimer = () => {
+    if (foregroundTimerRef.current) return;
+    foregroundTimerRef.current = setInterval(sendCurrentLocation, FOREGROUND_INTERVAL);
+  };
+
+  const stopForegroundTimer = () => {
+    if (foregroundTimerRef.current) {
+      clearInterval(foregroundTimerRef.current);
+      foregroundTimerRef.current = null;
+    }
+  };
+
+  // ── Arka plan görevi — sadece production APK'da tam çalışır ─────────────────
+  const startBackgroundLocation = async () => {
+    try {
+      const { status: bg } = await Location.requestBackgroundPermissionsAsync();
+      if (bg !== 'granted') return;
+      const isRunning = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+      if (!isRunning) {
+        await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: FOREGROUND_INTERVAL,
+          distanceInterval: 50,
+          showsBackgroundLocationIndicator: true,
+          foregroundService: {
+            notificationTitle: 'Görev Adamı',
+            notificationBody: 'Konum takibi aktif',
+            notificationColor: '#F97316',
+          },
+        });
+      }
+    } catch {
+      // Expo Go'da beklenen hata — sessiz geç
+    }
+  };
+
+  const stopBackgroundLocation = async () => {
+    try {
+      const isRunning = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+      if (isRunning) await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+    } catch {
+      // sessiz geç
+    }
+  };
+
+  // Kimlik doğrulandığında konum takibini başlat
+  useEffect(() => {
+    if (authState === 'authenticated') {
+      sendCurrentLocation();        // Hemen bir kez gönder
+      startForegroundTimer();       // Ön plan timer'ı başlat (Expo Go dahil)
+      startBackgroundLocation();    // Arka plan görevi dene (APK'da çalışır)
+    } else {
+      stopForegroundTimer();
+    }
+  }, [authState]);
 
   // ── Splash / loading state ──────────────────────────────────────────────────
   if (authState === 'loading') {

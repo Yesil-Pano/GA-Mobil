@@ -9,9 +9,9 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
+  Linking,
 } from 'react-native';
 // react-native-maps Expo Go'da native olarak bulunmaz — development build gerektirir.
-// try-catch ile güvenli şekilde yükleniyor; yoksa placeholder gösterilir.
 let MapView: any = null;
 let Marker: any = null;
 let PROVIDER_DEFAULT: any = undefined;
@@ -21,14 +21,15 @@ try {
   Marker = maps.Marker ?? null;
   PROVIDER_DEFAULT = maps.PROVIDER_DEFAULT;
 } catch {
-  // Expo Go'da native modül yok — MapView null kalır
+  // Expo Go'da native modül yok
 }
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
-import { workOrdersApi, teamsApi } from '../services/api';
-import type { WorkOrder, TeamMember } from '../types';
+import { useRoute } from '@react-navigation/native';
+import type { RouteProp } from '@react-navigation/native';
+import { workOrdersApi, locationApi } from '../services/api';
+import type { WorkOrder, TeamMemberLocation, RootTabParamList } from '../types';
 
-// ─── Default region: Ankara ───────────────────────────────────────────────────
 const DEFAULT_REGION = {
   latitude: 39.92077,
   longitude: 32.85411,
@@ -36,35 +37,84 @@ const DEFAULT_REGION = {
   longitudeDelta: 0.12,
 };
 
-// ─── Layer toggle ─────────────────────────────────────────────────────────────
 type Layer = 'workorders' | 'teams' | 'both';
 
+// Kaç saniyede bir canlı konumları yenile
+const TEAM_REFRESH_INTERVAL = 30_000;
+
+// Navigasyon için Google Maps / Apple Maps açar
+function openNavigation(lat: number, lng: number, label: string) {
+  const encodedLabel = encodeURIComponent(label);
+  const url = Platform.select({
+    ios:     `maps://?daddr=${lat},${lng}&q=${encodedLabel}`,
+    android: `google.navigation:q=${lat},${lng}`,
+  })!;
+  const webFallback = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+
+  Linking.canOpenURL(url).then((supported) => {
+    Linking.openURL(supported ? url : webFallback);
+  });
+}
+
 export default function MapScreen() {
+  const route = useRoute<RouteProp<RootTabParamList, 'Harita'>>();
   const mapRef = useRef<InstanceType<typeof MapView>>(null);
+  const teamRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const [layer, setLayer] = useState<Layer>('both');
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
-  const [teams, setTeams] = useState<TeamMember[]>([]);
+  const [teamLocations, setTeamLocations] = useState<TeamMemberLocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
   useEffect(() => {
-    loadMapData();
+    loadWorkOrders();
     requestLocation();
+    loadTeamLocations();
+
+    // 30 saniyede bir canlı konumları yenile
+    teamRefreshRef.current = setInterval(loadTeamLocations, TEAM_REFRESH_INTERVAL);
+    return () => {
+      if (teamRefreshRef.current) clearInterval(teamRefreshRef.current);
+    };
   }, []);
 
-  const loadMapData = async () => {
+  // WorkOrderDetail'den "Haritada Göster" ile gelen focus parametreleri
+  useEffect(() => {
+    const params = route.params;
+    if (params?.focusLatitude && params?.focusLongitude && mapRef.current) {
+      mapRef.current.animateToRegion(
+        {
+          latitude:       params.focusLatitude,
+          longitude:      params.focusLongitude,
+          latitudeDelta:  0.01,
+          longitudeDelta: 0.01,
+        },
+        800,
+      );
+    }
+  }, [route.params]);
+
+  const loadWorkOrders = async () => {
     setLoading(true);
     try {
-      const [woRes, teamsRes] = await Promise.allSettled([
-        workOrdersApi.getAll(),
-        teamsApi.getAll(),
-      ]);
-      if (woRes.status === 'fulfilled') setWorkOrders(woRes.value.data);
-      if (teamsRes.status === 'fulfilled') setTeams(teamsRes.value.data);
+      const res = await workOrdersApi.getAll();
+      setWorkOrders(res.data);
     } catch {
-      Alert.alert('Hata', 'Harita verisi yüklenemedi.');
+      // Sessiz geç — takım konumları görünmeye devam eder
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadTeamLocations = async () => {
+    try {
+      const res = await locationApi.getTeamLocations();
+      setTeamLocations(res.data);
+      setLastRefreshed(new Date());
+    } catch {
+      // Ağ hatası sessiz geç
     }
   };
 
@@ -77,29 +127,26 @@ export default function MapScreen() {
 
   const goToUserLocation = () => {
     if (userLocation) {
-      mapRef.current?.animateToRegion({
-        ...userLocation,
-        latitudeDelta: 0.02,
-        longitudeDelta: 0.02,
-      }, 600);
+      mapRef.current?.animateToRegion({ ...userLocation, latitudeDelta: 0.02, longitudeDelta: 0.02 }, 600);
     } else {
       Alert.alert('Konum', 'Konumunuz henüz alınamadı.');
     }
   };
 
-  const goToAnkara = () => {
-    mapRef.current?.animateToRegion(DEFAULT_REGION, 600);
-  };
+  const goToAnkara = () => mapRef.current?.animateToRegion(DEFAULT_REGION, 600);
 
-  // Only show markers matching active layer
+  const refreshAll = () => { loadWorkOrders(); loadTeamLocations(); };
+
   const showWorkOrders = layer === 'workorders' || layer === 'both';
   const showTeams      = layer === 'teams'      || layer === 'both';
 
-  // Work orders that have valid position
   const mappedOrders = workOrders.filter(
     (o) => Array.isArray(o.position) && o.position[0] !== 0 && o.position[1] !== 0,
   );
 
+  const activeTeamCount = teamLocations.length;
+
+  // ── Expo Go fallback ────────────────────────────────────────────────────────
   if (!MapView) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#0F172A' }]}>
@@ -119,7 +166,7 @@ export default function MapScreen() {
       {loading && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator color="#F97316" size="large" />
-          <Text style={styles.loadingText}>Harita verisi yükleniyor...</Text>
+          <Text style={styles.loadingText}>Yükleniyor...</Text>
         </View>
       )}
 
@@ -131,32 +178,43 @@ export default function MapScreen() {
         showsUserLocation={true}
         showsMyLocationButton={false}
       >
-        {/* ── Work Order markers ─── */}
+        {/* ── İş Emri işaretleri ─────────────────── */}
         {showWorkOrders &&
           mappedOrders.map((order) => (
             <Marker
-              key={order.id}
+              key={`wo-${order.id}`}
               coordinate={{ latitude: order.position[0], longitude: order.position[1] }}
-              title={order.customerName || order.title || 'İş Emri'}
-              description={`${order.status} · ${order.type}`}
               pinColor="#F97316"
+              title={order.customerName || order.title || 'İş Emri'}
+              description="Yol Tarifi Al →"
+              onCalloutPress={() =>
+                openNavigation(
+                  order.position[0],
+                  order.position[1],
+                  order.customerName || order.title || 'İş Emri',
+                )
+              }
             />
           ))}
 
-        {/* ── Team markers ─── */}
+        {/* ── Canlı takım konumları ───────────────── */}
         {showTeams &&
-          teams.map((member) => (
+          teamLocations.map((member) => (
             <Marker
-              key={member.id}
-              coordinate={{ latitude: member.position[0], longitude: member.position[1] }}
-              title={member.name}
-              description={`${member.project} · ${member.plate}`}
+              key={`tm-${member.userId}`}
+              coordinate={{ latitude: member.latitude, longitude: member.longitude }}
               pinColor="#38BDF8"
+              title={member.fullName}
+              description={
+                member.updatedAt
+                  ? `Son güncelleme: ${new Date(member.updatedAt).toLocaleTimeString('tr-TR')}`
+                  : 'Konum zamanı bilinmiyor'
+              }
             />
           ))}
       </MapView>
 
-      {/* ── Layer toggle ──────────────────────────── */}
+      {/* ── Katman seçici ─────────────────────────── */}
       <View style={styles.layerPanel}>
         {(['workorders', 'teams', 'both'] as Layer[]).map((l) => (
           <TouchableOpacity
@@ -171,7 +229,7 @@ export default function MapScreen() {
         ))}
       </View>
 
-      {/* ── Legend ────────────────────────────────── */}
+      {/* ── Lejant + son yenileme ──────────────────── */}
       <View style={styles.legend}>
         <View style={styles.legendRow}>
           <View style={[styles.legendDot, { backgroundColor: '#F97316' }]} />
@@ -179,11 +237,16 @@ export default function MapScreen() {
         </View>
         <View style={styles.legendRow}>
           <View style={[styles.legendDot, { backgroundColor: '#38BDF8' }]} />
-          <Text style={styles.legendText}>Personel ({teams.length})</Text>
+          <Text style={styles.legendText}>Personel ({activeTeamCount})</Text>
         </View>
+        {lastRefreshed && (
+          <Text style={styles.refreshText}>
+            {lastRefreshed.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          </Text>
+        )}
       </View>
 
-      {/* ── FABs ──────────────────────────────────── */}
+      {/* ── FAB grubu ─────────────────────────────── */}
       <View style={styles.fabColumn}>
         <TouchableOpacity style={styles.fab} onPress={goToUserLocation}>
           <Ionicons name="locate-outline" size={22} color="#fff" />
@@ -191,7 +254,7 @@ export default function MapScreen() {
         <TouchableOpacity style={[styles.fab, { backgroundColor: '#334155' }]} onPress={goToAnkara}>
           <Ionicons name="home-outline" size={22} color="#fff" />
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.fab, { backgroundColor: '#334155' }]} onPress={loadMapData}>
+        <TouchableOpacity style={[styles.fab, { backgroundColor: '#334155' }]} onPress={refreshAll}>
           <Ionicons name="refresh-outline" size={22} color="#fff" />
         </TouchableOpacity>
       </View>
@@ -243,6 +306,7 @@ const styles = StyleSheet.create({
   legendRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   legendDot: { width: 10, height: 10, borderRadius: 5 },
   legendText: { color: '#E2E8F0', fontSize: 12 },
+  refreshText: { color: '#475569', fontSize: 10, marginTop: 2 },
 
   fabColumn: {
     position: 'absolute',
@@ -264,4 +328,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 4,
   },
+
+  callout: { padding: 6, minWidth: 140, maxWidth: 200 },
+  calloutTitle: { fontSize: 13, fontWeight: '700', color: '#1E293B', marginBottom: 2 },
+  calloutSub: { fontSize: 11, color: '#475569' },
 });
