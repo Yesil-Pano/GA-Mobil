@@ -10,7 +10,6 @@ import type {
   TeamMember,
   TeamMemberLocation,
 } from '../types';
-
 // ─── Axios Instance ───────────────────────────────────────────────────────────
 
 const api = axios.create({
@@ -49,8 +48,8 @@ export const workOrdersApi = {
   create: (data: CreateWorkOrderDto) => api.post<{ message: string }>('/workorders', data),
 
   /** PATCH /workorders/{id}/status */
-  updateStatus: (id: string, status: string) =>
-    api.patch<{ message: string; status: string }>(`/workorders/${id}/status`, { status }),
+  updateStatus: (id: string, status: string, fieldNote?: string) =>
+    api.patch<{ message: string; status: string }>(`/workorders/${id}/status`, { status, fieldNote }),
 };
 
 // ─── Users API ────────────────────────────────────────────────────────────────
@@ -77,6 +76,29 @@ export const locationApi = {
   /** GET /locations/team — aynı tenant'taki canlı konumlar */
   getTeamLocations: () =>
     api.get<TeamMemberLocation[]>('/locations/team'),
+};
+
+// ─── Photos API ───────────────────────────────────────────────────────────────
+
+export const photosApi = {
+  /** POST /photos — base64 fotoğraf yükle */
+  upload: (payload: {
+    base64Data: string;
+    fileName: string;
+    contentType: string;
+    entityType: string;
+    entityId: string;
+    description?: string;
+  }) => api.post<{ id: string }>('/photos', payload),
+
+  /** GET /photos/{entityType}/{entityId} — metadata listesi */
+  list: (entityType: string, entityId: string) =>
+    api.get<Array<{ id: string; fileName: string; fileSize: number; createdAt: string }>>(
+      `/photos/${entityType}/${entityId}`,
+    ),
+
+  /** DELETE /photos/{id} */
+  remove: (id: string) => api.delete(`/photos/${id}`),
 };
 
 export default api;

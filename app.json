@@ -5,6 +5,9 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "newArchEnabled": true,
+    "updates": {
+      "enabled": false
+    },
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
@@ -14,7 +17,10 @@
         "NSLocationWhenInUseUsageDescription": "Görev Adamı saha operasyonları için konumunuzu kullanır.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Görev Adamı saha operasyonları ve güvenliğiniz için arka planda konumunuzu takip eder.",
         "NSLocationAlwaysUsageDescription": "Görev Adamı saha operasyonları ve güvenliğiniz için arka planda konumunuzu takip eder.",
-        "UIBackgroundModes": ["location", "fetch"]
+        "UIBackgroundModes": [
+          "location",
+          "fetch"
+        ]
       }
     },
     "android": {
@@ -38,6 +44,9 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "./plugins/withRemoveEnableBundleCompression",
+      "./plugins/withFixMainApplication",
+      "./plugins/withCleartextTraffic",
       "expo-secure-store",
       [
         "expo-location",
@@ -46,7 +55,8 @@
           "isAndroidBackgroundLocationEnabled": true,
           "isIosBackgroundLocationEnabled": true
         }
-      ]
+      ],
+      "expo-font"
     ],
     "extra": {
       "eas": {

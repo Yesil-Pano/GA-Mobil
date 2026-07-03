@@ -18,7 +18,8 @@ import { useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { WorkOrdersStackParamList, RootTabParamList } from '../types';
-import { workOrdersApi } from '../services/api';
+import { workOrdersApi, photosApi } from '../services/api';
+import type { PhotoItem } from '../types';
 
 type Props = NativeStackScreenProps<WorkOrdersStackParamList, 'WorkOrderDetail'>;
 
@@ -50,8 +51,9 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
   const [currentStatus, setCurrentStatus] = useState(order.status ?? 'Bekliyor');
   const [actionLoading, setActionLoading] = useState<'start' | 'complete' | 'cancel' | null>(null);
+  const [uploadProgress, setUploadProgress] = useState('');
   const [sahaNote, setSahaNote] = useState('');
-  const [photos, setPhotos] = useState<string[]>([]);
+  const [photos, setPhotos] = useState<PhotoItem[]>([]);
 
   useEffect(() => {
     const parent = navigation.getParent();
@@ -71,33 +73,58 @@ export default function WorkOrderDetailScreen({ route }: Props) {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       allowsMultipleSelection: true,
-      quality: 0.8,
+      quality: 0.7,
       selectionLimit: 10,
+      base64: true,
     });
     if (!result.canceled) {
-      const uris = result.assets.map((a) => a.uri);
-      setPhotos((prev) => [...prev, ...uris].slice(0, 10));
+      const newItems: PhotoItem[] = result.assets.map((a) => ({
+        uri:      a.uri,
+        base64:   a.base64 ?? '',
+        fileName: a.fileName ?? `photo_${Date.now()}.jpg`,
+        mimeType: a.mimeType ?? 'image/jpeg',
+      }));
+      setPhotos((prev) => [...prev, ...newItems].slice(0, 10));
     }
   };
 
-  const removePhoto = (uri: string) => setPhotos((prev) => prev.filter((p) => p !== uri));
+  const removePhoto = (uri: string) => setPhotos((prev) => prev.filter((p) => p.uri !== uri));
 
   // ── Durum güncelleme ─────────────────────────────────────────────────────────
   const updateStatus = async (newStatus: string, loadingKey: 'start' | 'complete' | 'cancel') => {
     setActionLoading(loadingKey);
     try {
-      await workOrdersApi.updateStatus(order.id, newStatus);
+      // 1) Fotoğrafları yükle (Tamamla / İptal işlemlerinde)
+      if (photos.length > 0 && loadingKey !== 'start') {
+        for (let i = 0; i < photos.length; i++) {
+          const p = photos[i];
+          setUploadProgress(`Fotoğraf yükleniyor ${i + 1}/${photos.length}...`);
+          await photosApi.upload({
+            base64Data:  p.base64,
+            fileName:    p.fileName,
+            contentType: p.mimeType,
+            entityType:  'WorkOrder',
+            entityId:    order.id,
+          });
+        }
+        setUploadProgress('');
+      }
+
+      // 2) Durumu + saha notunu güncelle
+      await workOrdersApi.updateStatus(order.id, newStatus, sahaNote);
       setCurrentStatus(newStatus);
+
       if (newStatus === 'Tamamlandı' || newStatus === 'İptal') {
         Alert.alert('Başarılı', `İş emri "${newStatus}" olarak işaretlendi.`, [
           { text: 'Tamam', onPress: () => navigation.goBack() },
         ]);
       }
     } catch (err: any) {
-      const msg = err.response?.data?.message ?? 'Durum güncellenemedi.';
+      const msg = err.response?.data?.message ?? 'İşlem gerçekleştirilemedi.';
       Alert.alert('Hata', msg);
     } finally {
       setActionLoading(null);
+      setUploadProgress('');
     }
   };
 
@@ -271,14 +298,14 @@ export default function WorkOrderDetailScreen({ route }: Props) {
             <FlatList
               data={photos}
               horizontal
-              keyExtractor={(uri) => uri}
+              keyExtractor={(item) => item.uri}
               showsHorizontalScrollIndicator={false}
               style={styles.photoList}
               renderItem={({ item }) => (
                 <View style={styles.photoThumb}>
-                  <Image source={{ uri: item }} style={styles.thumbImg} />
+                  <Image source={{ uri: item.uri }} style={styles.thumbImg} />
                   {!isFinished && (
-                    <TouchableOpacity style={styles.removeBtn} onPress={() => removePhoto(item)}>
+                    <TouchableOpacity style={styles.removeBtn} onPress={() => removePhoto(item.uri)}>
                       <Ionicons name="close-circle" size={20} color="#EF4444" />
                     </TouchableOpacity>
                   )}
@@ -314,6 +341,14 @@ export default function WorkOrderDetailScreen({ route }: Props) {
       {/* ── Alt Aksiyon Alanı ──────────────────────── */}
       {!isFinished && (
         <View style={styles.actionArea}>
+
+          {/* Yükleme progress */}
+          {!!uploadProgress && (
+            <View style={styles.progressRow}>
+              <ActivityIndicator size="small" color="#F97316" />
+              <Text style={styles.progressText}>{uploadProgress}</Text>
+            </View>
+          )}
 
           {/* İşi Başlat — sadece Bekliyor durumunda */}
           {currentStatus === 'Bekliyor' && (
@@ -464,6 +499,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#1A233A',
     padding: 16,
   },
+  progressRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    marginBottom: 12, paddingHorizontal: 4,
+  },
+  progressText: { color: '#F97316', fontSize: 13, fontWeight: '600' },
 
   // İşe Başla — büyük, tam genişlik
   startBtn: {

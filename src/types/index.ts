@@ -99,6 +99,14 @@ export interface TeamMemberLocation {
   updatedAt: string | null;
 }
 
+/** Mobilde seçilen fotoğraf — URI (görüntü) + base64 (yükleme) */
+export interface PhotoItem {
+  uri: string;
+  base64: string;
+  fileName: string;
+  mimeType: string;
+}
+
 // ─── Navigation Param Lists ───────────────────────────────────────────────────
 
 export type WorkOrdersStackParamList = {
