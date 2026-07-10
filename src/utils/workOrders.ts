@@ -22,6 +22,8 @@ function normalizeUserId(id: string | null | undefined): string {
   return (id ?? '').trim().replace(/[{}]/g, '').toLowerCase();
 }
 
+export { normalizeUserId };
+
 export function extractApiErrorMessage(err: unknown, fallback: string): string {
   const safeFallback = fallback.trim() || 'Beklenmeyen bir hata oluştu.';
   const error = err as {

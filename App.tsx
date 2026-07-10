@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StatusBar, TouchableOpacity, View, Text, Image, ActivityIndicator } from 'react-native';
+import { StatusBar, TouchableOpacity, View, Text, Image, ActivityIndicator, AppState } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -21,6 +21,7 @@ import NotificationPanel from './src/components/NotificationPanel';
 // ─── Arka plan konum görevi — import yalnızca TaskManager'a kaydettirmek için ─
 import './src/tasks/locationTask';
 import { LOCATION_TASK_NAME, pushLocationToBackend } from './src/tasks/locationTask';
+import { resolveUserLocation } from './src/utils/location';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 import type { WorkOrdersStackParamList, RootTabParamList } from './src/types';
@@ -39,8 +40,10 @@ function WorkOrdersNavigator() {
   );
 }
 
-// ─── App ──────────────────────────────────────────────────────────────────────
-const FOREGROUND_INTERVAL = 5 * 60 * 1000; // 5 dakika (Expo Go fallback)
+// ── Konum: pil dostu aralıklar (web "Güncelle" ile anlık çeker, mobil push tabanlı) ──
+const LOCATION_INTERVAL_MS = 10 * 60 * 1000; // 10 dakika
+const LOCATION_DISTANCE_M = 100;              // 100 metre hareket
+const LOCATION_BOOTSTRAP_DELAY_MS = 6_000;      // Harita/WebView ile çakışmayı önle
 
 export default function App() {
   const [authState, setAuthState] = useState<'loading' | 'authenticated' | 'unauthenticated'>('loading');
@@ -78,19 +81,28 @@ export default function App() {
   // ── Konum gönder (arka plan görevinden bağımsız, her zaman çalışır) ──────────
   const sendCurrentLocation = async () => {
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') return;
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      await pushLocationToBackend(loc.coords.latitude, loc.coords.longitude);
+      const loc = await resolveUserLocation({ preferCached: true, gpsTimeoutMs: 4_000 });
+      if (loc) {
+        await pushLocationToBackend(loc.latitude, loc.longitude);
+      }
     } catch (err) {
       console.warn('[App] Anlık konum gönderilemedi:', err);
     }
   };
 
-  // ── Ön plan timer — Expo Go'da arka plan görevi çalışmadığında devreye girer ─
-  const startForegroundTimer = () => {
+  // ── Ön plan timer — yalnızca arka plan görevi yoksa (Expo Go vb.) ─────────────
+  const startForegroundTimer = async () => {
     if (foregroundTimerRef.current) return;
-    foregroundTimerRef.current = setInterval(sendCurrentLocation, FOREGROUND_INTERVAL);
+
+    let backgroundRunning = false;
+    try {
+      backgroundRunning = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+    } catch {
+      // sessiz geç
+    }
+    if (backgroundRunning) return;
+
+    foregroundTimerRef.current = setInterval(sendCurrentLocation, LOCATION_INTERVAL_MS);
   };
 
   const stopForegroundTimer = () => {
@@ -108,9 +120,9 @@ export default function App() {
       const isRunning = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
       if (!isRunning) {
         await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
-          accuracy: Location.Accuracy.Balanced,
-          timeInterval: FOREGROUND_INTERVAL,
-          distanceInterval: 50,
+          accuracy: Location.Accuracy.Low,
+          timeInterval: LOCATION_INTERVAL_MS,
+          distanceInterval: LOCATION_DISTANCE_M,
           showsBackgroundLocationIndicator: true,
           foregroundService: {
             notificationTitle: 'Görev Adamı',
@@ -133,15 +145,33 @@ export default function App() {
     }
   };
 
-  // Kimlik doğrulandığında konum takibini başlat
+  // Kimlik doğrulandığında konum takibini gecikmeli başlat (ilk açılışta Harita çökmesini önler)
   useEffect(() => {
-    if (authState === 'authenticated') {
-      sendCurrentLocation();        // Hemen bir kez gönder
-      startForegroundTimer();       // Ön plan timer'ı başlat (Expo Go dahil)
-      startBackgroundLocation();    // Arka plan görevi dene (APK'da çalışır)
-    } else {
+    if (authState !== 'authenticated') {
       stopForegroundTimer();
+      return;
     }
+
+    const timer = setTimeout(() => {
+      sendCurrentLocation();
+      startForegroundTimer();
+      startBackgroundLocation();
+    }, LOCATION_BOOTSTRAP_DELAY_MS);
+
+    return () => clearTimeout(timer);
+  }, [authState]);
+
+  // Uygulama ön plana gelince tek seferlik konum gönder (düşük pil maliyeti)
+  useEffect(() => {
+    if (authState !== 'authenticated') return;
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        sendCurrentLocation();
+      }
+    });
+
+    return () => subscription.remove();
   }, [authState]);
 
   // ── Splash / loading state ──────────────────────────────────────────────────

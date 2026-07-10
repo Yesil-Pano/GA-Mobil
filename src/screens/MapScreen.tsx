@@ -11,13 +11,13 @@ import {
   Platform,
   Linking,
 } from 'react-native';
-import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import OsmMapView, { type OsmMapViewRef, type OsmMarker } from '../components/OsmMapView';
 import { workOrdersApi } from '../services/api';
 import { extractApiErrorMessage, filterWorkOrdersForUser, getCurrentUserId, ensureAlertMessage } from '../utils/workOrders';
+import { resolveUserLocation } from '../utils/location';
 import type { WorkOrder, RootTabParamList } from '../types';
 
 const DEFAULT_REGION = {
@@ -58,6 +58,7 @@ export default function MapScreen() {
   const [loading, setLoading] = useState(true);
   const [mapReady, setMapReady] = useState(false);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [resolvingLocation, setResolvingLocation] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
   const loadWorkOrders = useCallback(async () => {
@@ -82,8 +83,17 @@ export default function MapScreen() {
 
   useEffect(() => {
     loadWorkOrders();
-    requestLocation();
   }, [loadWorkOrders]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+
+    const timer = setTimeout(() => {
+      requestLocation();
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [mapReady]);
 
   useEffect(() => {
     const params = route.params;
@@ -101,17 +111,36 @@ export default function MapScreen() {
   }, [route.params, mapReady]);
 
   const requestLocation = async () => {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') return;
-    const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-    setUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+    const loc = await resolveUserLocation();
+    if (loc) setUserLocation(loc);
   };
 
-  const goToUserLocation = () => {
-    if (userLocation) {
-      mapRef.current?.animateToRegion({ ...userLocation, latitudeDelta: 0.02, longitudeDelta: 0.02 }, 600);
-    } else {
-      Alert.alert('Konum', 'Konumunuz henüz alınamadı.');
+  const goToUserLocation = async () => {
+    setResolvingLocation(true);
+    try {
+      const loc = await resolveUserLocation();
+      if (loc) {
+        setUserLocation(loc);
+        mapRef.current?.animateToRegion({ ...loc, latitudeDelta: 0.02, longitudeDelta: 0.02 }, 600);
+        return;
+      }
+      if (userLocation) {
+        mapRef.current?.animateToRegion(
+          { ...userLocation, latitudeDelta: 0.02, longitudeDelta: 0.02 },
+          600,
+        );
+        Alert.alert(
+          'Konum',
+          'Yeni konum alınamadı. Son bilinen konum gösteriliyor.',
+        );
+        return;
+      }
+      Alert.alert(
+        'Konum',
+        'Konumunuz alınamadı. İnternet bağlantınızı kontrol edin veya açık alanda tekrar deneyin.',
+      );
+    } finally {
+      setResolvingLocation(false);
     }
   };
 
@@ -182,8 +211,12 @@ export default function MapScreen() {
       </View>
 
       <View style={styles.fabColumn}>
-        <TouchableOpacity style={styles.fab} onPress={goToUserLocation}>
-          <Ionicons name="locate-outline" size={22} color="#fff" />
+        <TouchableOpacity style={styles.fab} onPress={goToUserLocation} disabled={resolvingLocation}>
+          {resolvingLocation ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <Ionicons name="locate-outline" size={22} color="#fff" />
+          )}
         </TouchableOpacity>
         <TouchableOpacity style={[styles.fab, { backgroundColor: '#334155' }]} onPress={goToAnkara}>
           <Ionicons name="home-outline" size={22} color="#fff" />

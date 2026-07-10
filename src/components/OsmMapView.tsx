@@ -1,5 +1,5 @@
 import React, { forwardRef, useCallback, useImperativeHandle, useMemo, useRef } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 
 export type MapRegion = {
@@ -154,7 +154,7 @@ function OsmMapViewInner(
   const pendingRef = useRef<string[]>([]);
 
   const sendCommand = useCallback((payload: object) => {
-    const script = `window.__handleCommand(${JSON.stringify(payload)}); true;`;
+    const script = `try{window.__handleCommand(${JSON.stringify(payload)});}catch(e){} true;`;
     if (!readyRef.current) {
       pendingRef.current.push(script);
       return;
@@ -210,6 +210,12 @@ function OsmMapViewInner(
     [flushPending, markers, onMapReady, onMarkerPress, onNavigatePress, sendCommand, userLocation],
   );
 
+  const handleRenderProcessGone = useCallback(() => {
+    readyRef.current = false;
+    webRef.current?.reload();
+    return true;
+  }, []);
+
   const source = useMemo(() => ({ html: MAP_HTML }), []);
 
   return (
@@ -225,6 +231,8 @@ function OsmMapViewInner(
         allowsInlineMediaPlayback
         onMessage={handleMessage}
         setSupportMultipleWindows={false}
+        androidLayerType="hardware"
+        onRenderProcessGone={Platform.OS === 'android' ? handleRenderProcessGone : undefined}
       />
     </View>
   );

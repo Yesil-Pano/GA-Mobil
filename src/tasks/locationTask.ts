@@ -6,9 +6,9 @@
  * import edilmesi gerekmez — TaskManager.defineTask() global olarak kaydeder.
  * App.tsx import eder ve görev otomatik çalışmaya başlar.
  *
- * Tetiklenme koşulları:
- *   - Her 5 dakikada bir (timeInterval: 300_000 ms)
- *   - VEYA kullanıcı 50 metre yer değiştirdiğinde (distanceInterval: 50 m)
+ * Tetiklenme koşulları (pil dostu):
+ *   - Her 10 dakikada bir
+ *   - VEYA kullanıcı 100 metre yer değiştirdiğinde
  */
 
 import * as TaskManager from 'expo-task-manager';

@@ -760,7 +760,7 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
               <View style={[styles.descBox, { marginTop: 10 }]}>
 
-                <Text style={styles.descLabel}>Mobil Açıklama</Text>
+                <Text style={styles.descLabel}>Mühendis Açıklaması</Text>
 
                 <Text style={styles.descText}>{order.mobileDescription}</Text>
 

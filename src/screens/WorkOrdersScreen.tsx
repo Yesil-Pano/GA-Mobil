@@ -88,6 +88,24 @@ function WorkOrderCard({ order, index, onPress }: CardProps) {
             <Text style={styles.cardMeta} numberOfLines={1}>{order.address}</Text>
           </View>
         )}
+        {!!order.description?.trim() && (
+          <View style={styles.cardRow}>
+            <Ionicons name="document-text-outline" size={13} color="#94A3B8" />
+            <Text style={styles.cardMeta} numberOfLines={2}>
+              <Text style={styles.cardMetaLabel}>Genel Açıklama: </Text>
+              {order.description.trim()}
+            </Text>
+          </View>
+        )}
+        {!!order.mobileDescription?.trim() && (
+          <View style={styles.cardRow}>
+            <Ionicons name="create-outline" size={13} color="#94A3B8" />
+            <Text style={styles.cardMeta} numberOfLines={2}>
+              <Text style={styles.cardMetaLabel}>Mühendis Açıklaması: </Text>
+              {order.mobileDescription.trim()}
+            </Text>
+          </View>
+        )}
 
         <View style={styles.cardFooter}>
           <Text style={styles.assignedText}>
@@ -166,7 +184,9 @@ export default function WorkOrdersScreen() {
           o.customerName?.toLowerCase().includes(lower) ||
           o.title?.toLowerCase().includes(lower) ||
           o.address?.toLowerCase().includes(lower) ||
-          o.type?.toLowerCase().includes(lower),
+          o.type?.toLowerCase().includes(lower) ||
+          o.description?.toLowerCase().includes(lower) ||
+          o.mobileDescription?.toLowerCase().includes(lower),
       );
     }
     if (status) {
@@ -359,6 +379,7 @@ const styles = StyleSheet.create({
   cardTitle: { color: '#E2E8F0', fontSize: 15, fontWeight: '700', marginBottom: 6 },
   cardRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 3, gap: 5 },
   cardMeta: { color: '#94A3B8', fontSize: 12, flex: 1 },
+  cardMetaLabel: { fontWeight: '700', color: '#CBD5E1' },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#334155' },
   assignedText: { color: '#94A3B8', fontSize: 12 },
   assignedLabel: { fontWeight: '700' },
