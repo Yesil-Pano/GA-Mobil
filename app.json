@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "GA-Mobil",
+    "name": "Görev Adamı",
     "slug": "GA-Mobil",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -26,7 +26,7 @@
     "android": {
       "usesCleartextTraffic": true,
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#1A233A",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"

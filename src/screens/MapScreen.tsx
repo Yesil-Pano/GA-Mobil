@@ -40,6 +40,15 @@ function openNavigation(lat: number, lng: number, label: string) {
   });
 }
 
+function buildMarkerDescription(order: WorkOrder): string {
+  const parts: string[] = [];
+  if (order.status) parts.push(`Durum: ${order.status}`);
+  if (order.type) parts.push(`Tür: ${order.type}`);
+  if (order.priority) parts.push(`Öncelik: ${order.priority}`);
+  if (order.address?.trim()) parts.push(order.address.trim());
+  return parts.join(' · ') || 'Atanmış saha iş emri';
+}
+
 export default function MapScreen() {
   const route = useRoute<RouteProp<RootTabParamList, 'Harita'>>();
   const mapRef = useRef<OsmMapViewRef>(null);
@@ -124,7 +133,7 @@ export default function MapScreen() {
         latitude: order.position[0],
         longitude: order.position[1],
         title: label,
-        description: 'Dokunarak yol tarifi alın',
+        description: buildMarkerDescription(order),
         color: '#F97316',
       });
       index.set(id, { lat: order.position[0], lng: order.position[1], label });
@@ -134,17 +143,10 @@ export default function MapScreen() {
     return next;
   }, [mappedOrders]);
 
-  const handleMarkerPress = useCallback((markerId: string) => {
+  const handleNavigatePress = useCallback((markerId: string) => {
     const target = markerIndexRef.current.get(markerId);
     if (!target) return;
-
-    Alert.alert(target.label, 'Yol tarifi almak ister misiniz?', [
-      { text: 'İptal', style: 'cancel' },
-      {
-        text: 'Yol Tarifi Al',
-        onPress: () => openNavigation(target.lat, target.lng, target.label),
-      },
-    ]);
+    openNavigation(target.lat, target.lng, target.label);
   }, []);
 
   return (
@@ -161,14 +163,16 @@ export default function MapScreen() {
         initialRegion={DEFAULT_REGION}
         markers={markers}
         userLocation={userLocation}
-        onMarkerPress={handleMarkerPress}
+        onNavigatePress={handleNavigatePress}
         onMapReady={() => setMapReady(true)}
       />
 
       <View style={styles.legend}>
         <View style={styles.legendRow}>
-          <View style={[styles.legendDot, { backgroundColor: '#F97316' }]} />
-          <Text style={styles.legendText}>İş Emirlerim ({mappedOrders.length})</Text>
+          <View style={styles.legendIcon}>
+            <Ionicons name="flash" size={12} color="#F97316" />
+          </View>
+          <Text style={styles.legendText}>İş Emri İstasyonları ({mappedOrders.length})</Text>
         </View>
         {lastRefreshed && (
           <Text style={styles.refreshText}>
@@ -214,7 +218,16 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   legendRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  legendDot: { width: 10, height: 10, borderRadius: 5 },
+  legendIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    backgroundColor: '#1A233A',
+    borderWidth: 1,
+    borderColor: '#F97316',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   legendText: { color: '#E2E8F0', fontSize: 12 },
   refreshText: { color: '#475569', fontSize: 10, marginTop: 2 },
   fabColumn: {

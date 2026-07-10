@@ -27,6 +27,7 @@ type Props = {
   markers: OsmMarker[];
   userLocation?: { latitude: number; longitude: number } | null;
   onMarkerPress?: (markerId: string) => void;
+  onNavigatePress?: (markerId: string) => void;
   onMapReady?: () => void;
 };
 
@@ -60,23 +61,45 @@ const MAP_HTML = `<!DOCTYPE html>
       return Math.max(3, Math.min(18, Math.round(Math.log2(360 / (latDelta || 0.12)))));
     }
 
+    function stationMarkerHtml() {
+      return '<div style="display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 2px 4px rgba(0,0,0,.45));">' +
+        '<div style="width:34px;height:34px;border-radius:10px;background:#1A233A;border:2px solid #F97316;display:flex;align-items:center;justify-content:center;">' +
+          '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+            '<path d="M12 2v3M8.5 5.5l2 2M15.5 5.5l-2 2M6 12h3M15 12h3M8.5 18.5l2-2M15.5 18.5l-2-2M12 19v3" stroke="#F97316" stroke-width="1.6" stroke-linecap="round"/>' +
+            '<circle cx="12" cy="12" r="4.5" stroke="#F97316" stroke-width="1.8"/>' +
+            '<path d="M12 9.5v5M9.8 12h4.4" stroke="#F97316" stroke-width="1.6" stroke-linecap="round"/>' +
+          '</svg>' +
+        '</div>' +
+        '<div style="width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:9px solid #1A233A;margin-top:-2px;"></div>' +
+      '</div>';
+    }
+
+    window.__navigate = function(id) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'navigate', id: id }));
+      map.closePopup();
+    };
+
     function setMarkers(markers) {
       markerLayer.clearLayers();
       (markers || []).forEach((m) => {
         const icon = L.divIcon({
           className: '',
-          html: '<div style="width:14px;height:14px;border-radius:50%;background:' + m.color +
-            ';border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45);"></div>',
-          iconSize: [14, 14],
-          iconAnchor: [7, 7],
+          html: stationMarkerHtml(),
+          iconSize: [34, 43],
+          iconAnchor: [17, 43],
+          popupAnchor: [0, -40],
         });
         const marker = L.marker([m.latitude, m.longitude], { icon }).addTo(markerLayer);
-        const popup = '<strong>' + escapeHtml(m.title) + '</strong>' +
-          (m.description ? '<br/>' + escapeHtml(m.description) : '');
-        marker.bindPopup(popup);
-        marker.on('click', () => {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'markerPress', id: m.id }));
-        });
+        const navId = escapeHtml(m.id);
+        const popupHtml = '<div style="min-width:180px;max-width:240px;">' +
+          '<strong style="font-size:14px;color:#1A233A;display:block;">' + escapeHtml(m.title) + '</strong>' +
+          (m.description ? '<p style="margin:8px 0 0;font-size:12px;color:#475569;line-height:1.45;">' + escapeHtml(m.description) + '</p>' : '') +
+          '<button type="button" onclick="window.__navigate(\\'' + navId + '\\'); return false;" ' +
+            'style="margin-top:12px;width:100%;padding:10px 12px;background:#F97316;color:#fff;border:none;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;touch-action:manipulation;">' +
+            '🧭 Yol Tarifi Al' +
+          '</button>' +
+        '</div>';
+        marker.bindPopup(popupHtml, { closeButton: true, maxWidth: 260 });
       });
     }
 
@@ -123,7 +146,7 @@ const MAP_HTML = `<!DOCTYPE html>
 </html>`;
 
 function OsmMapViewInner(
-  { initialRegion, markers, userLocation, onMarkerPress, onMapReady }: Props,
+  { initialRegion, markers, userLocation, onMarkerPress, onNavigatePress, onMapReady }: Props,
   ref: React.Ref<OsmMapViewRef>,
 ) {
   const webRef = useRef<WebView>(null);
@@ -177,11 +200,14 @@ function OsmMapViewInner(
         if (data.type === 'markerPress' && data.id) {
           onMarkerPress?.(data.id);
         }
+        if (data.type === 'navigate' && data.id) {
+          onNavigatePress?.(data.id);
+        }
       } catch {
         // yoksay
       }
     },
-    [flushPending, markers, onMapReady, onMarkerPress, sendCommand, userLocation],
+    [flushPending, markers, onMapReady, onMarkerPress, onNavigatePress, sendCommand, userLocation],
   );
 
   const source = useMemo(() => ({ html: MAP_HTML }), []);
