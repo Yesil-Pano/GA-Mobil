@@ -16,6 +16,7 @@ import MapScreen from './src/screens/MapScreen';
 import OverviewScreen from './src/screens/OverviewScreen';
 import ChatScreen from './src/screens/ChatScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
+import NotificationPanel from './src/components/NotificationPanel';
 
 // ─── Arka plan konum görevi — import yalnızca TaskManager'a kaydettirmek için ─
 import './src/tasks/locationTask';
@@ -43,6 +44,7 @@ const FOREGROUND_INTERVAL = 5 * 60 * 1000; // 5 dakika (Expo Go fallback)
 
 export default function App() {
   const [authState, setAuthState] = useState<'loading' | 'authenticated' | 'unauthenticated'>('loading');
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const foregroundTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => { checkLoginStatus(); }, []);
@@ -205,7 +207,11 @@ export default function App() {
             ),
             headerRight: () => (
               <View style={{ flexDirection: 'row', marginRight: 14, alignItems: 'center' }}>
-                <TouchableOpacity style={{ marginRight: 18 }}>
+                <TouchableOpacity
+                  style={{ marginRight: 18 }}
+                  onPress={() => setNotificationsOpen(true)}
+                  accessibilityLabel="Bildirimleri aç"
+                >
                   <Ionicons name="notifications-outline" size={23} color="#fff" />
                   <View
                     style={{
@@ -248,6 +254,7 @@ export default function App() {
           </Tab.Screen>
         </Tab.Navigator>
       )}
+      <NotificationPanel visible={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
     </NavigationContainer>
     </SafeAreaProvider>
   );

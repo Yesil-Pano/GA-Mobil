@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import * as SecureStore from 'expo-secure-store';
 import { workOrdersApi } from '../services/api';
+import { filterWorkOrdersForUser, getCurrentUserId } from '../utils/workOrders';
 import type { WorkOrder } from '../types';
 
 // ─── Stat card ────────────────────────────────────────────────────────────────
@@ -46,8 +47,8 @@ export default function OverviewScreen() {
     try {
       const name = await SecureStore.getItemAsync('user_name');
       if (name) setUserName(name);
-      const { data } = await workOrdersApi.getAll();
-      setOrders(data);
+      const [{ data }, userId] = await Promise.all([workOrdersApi.getAll(), getCurrentUserId()]);
+      setOrders(filterWorkOrdersForUser(data, userId));
     } catch {
       // silent fail — show cached data
     } finally {

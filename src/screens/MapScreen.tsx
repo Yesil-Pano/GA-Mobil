@@ -1,6 +1,6 @@
 // ─── MapScreen.tsx ─────────────────────────────────────────────────────────────
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,24 +11,14 @@ import {
   Platform,
   Linking,
 } from 'react-native';
-// react-native-maps Expo Go'da native olarak bulunmaz — development build gerektirir.
-let MapView: any = null;
-let Marker: any = null;
-let PROVIDER_DEFAULT: any = undefined;
-try {
-  const maps = require('react-native-maps');
-  MapView = maps.default ?? maps.MapView ?? null;
-  Marker = maps.Marker ?? null;
-  PROVIDER_DEFAULT = maps.PROVIDER_DEFAULT;
-} catch {
-  // Expo Go'da native modül yok
-}
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
-import { workOrdersApi, locationApi } from '../services/api';
-import type { WorkOrder, TeamMemberLocation, RootTabParamList } from '../types';
+import OsmMapView, { type OsmMapViewRef, type OsmMarker } from '../components/OsmMapView';
+import { workOrdersApi } from '../services/api';
+import { extractApiErrorMessage, filterWorkOrdersForUser, getCurrentUserId, ensureAlertMessage } from '../utils/workOrders';
+import type { WorkOrder, RootTabParamList } from '../types';
 
 const DEFAULT_REGION = {
   latitude: 39.92077,
@@ -37,16 +27,10 @@ const DEFAULT_REGION = {
   longitudeDelta: 0.12,
 };
 
-type Layer = 'workorders' | 'teams' | 'both';
-
-// Kaç saniyede bir canlı konumları yenile
-const TEAM_REFRESH_INTERVAL = 30_000;
-
-// Navigasyon için Google Maps / Apple Maps açar
 function openNavigation(lat: number, lng: number, label: string) {
   const encodedLabel = encodeURIComponent(label);
   const url = Platform.select({
-    ios:     `maps://?daddr=${lat},${lng}&q=${encodedLabel}`,
+    ios: `maps://?daddr=${lat},${lng}&q=${encodedLabel}`,
     android: `google.navigation:q=${lat},${lng}`,
   })!;
   const webFallback = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
@@ -58,65 +42,54 @@ function openNavigation(lat: number, lng: number, label: string) {
 
 export default function MapScreen() {
   const route = useRoute<RouteProp<RootTabParamList, 'Harita'>>();
-  const mapRef = useRef<InstanceType<typeof MapView>>(null);
-  const teamRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mapRef = useRef<OsmMapViewRef>(null);
+  const markerIndexRef = useRef<Map<string, { lat: number; lng: number; label: string }>>(new Map());
 
-  const [layer, setLayer] = useState<Layer>('both');
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
-  const [teamLocations, setTeamLocations] = useState<TeamMemberLocation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [mapReady, setMapReady] = useState(false);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+
+  const loadWorkOrders = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [res, userId] = await Promise.all([workOrdersApi.getAll(), getCurrentUserId()]);
+      const mine = filterWorkOrdersForUser(res.data, userId);
+      setWorkOrders(mine);
+      setLastRefreshed(new Date());
+    } catch (err) {
+      Alert.alert(
+        'Hata',
+        ensureAlertMessage(
+          extractApiErrorMessage(err, 'İş emirleri haritaya yüklenemedi.'),
+          'İş emirleri haritaya yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.',
+        ),
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     loadWorkOrders();
     requestLocation();
-    loadTeamLocations();
+  }, [loadWorkOrders]);
 
-    // 30 saniyede bir canlı konumları yenile
-    teamRefreshRef.current = setInterval(loadTeamLocations, TEAM_REFRESH_INTERVAL);
-    return () => {
-      if (teamRefreshRef.current) clearInterval(teamRefreshRef.current);
-    };
-  }, []);
-
-  // WorkOrderDetail'den "Haritada Göster" ile gelen focus parametreleri
   useEffect(() => {
     const params = route.params;
-    if (params?.focusLatitude && params?.focusLongitude && mapRef.current) {
-      mapRef.current.animateToRegion(
+    if (params?.focusLatitude && params?.focusLongitude && mapReady) {
+      mapRef.current?.animateToRegion(
         {
-          latitude:       params.focusLatitude,
-          longitude:      params.focusLongitude,
-          latitudeDelta:  0.01,
+          latitude: params.focusLatitude,
+          longitude: params.focusLongitude,
+          latitudeDelta: 0.01,
           longitudeDelta: 0.01,
         },
         800,
       );
     }
-  }, [route.params]);
-
-  const loadWorkOrders = async () => {
-    setLoading(true);
-    try {
-      const res = await workOrdersApi.getAll();
-      setWorkOrders(res.data);
-    } catch {
-      // Sessiz geç — takım konumları görünmeye devam eder
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadTeamLocations = async () => {
-    try {
-      const res = await locationApi.getTeamLocations();
-      setTeamLocations(res.data);
-      setLastRefreshed(new Date());
-    } catch {
-      // Ağ hatası sessiz geç
-    }
-  };
+  }, [route.params, mapReady]);
 
   const requestLocation = async () => {
     const { status } = await Location.requestForegroundPermissionsAsync();
@@ -135,31 +108,44 @@ export default function MapScreen() {
 
   const goToAnkara = () => mapRef.current?.animateToRegion(DEFAULT_REGION, 600);
 
-  const refreshAll = () => { loadWorkOrders(); loadTeamLocations(); };
-
-  const showWorkOrders = layer === 'workorders' || layer === 'both';
-  const showTeams      = layer === 'teams'      || layer === 'both';
-
   const mappedOrders = workOrders.filter(
     (o) => Array.isArray(o.position) && o.position[0] !== 0 && o.position[1] !== 0,
   );
 
-  const activeTeamCount = teamLocations.length;
+  const markers = useMemo(() => {
+    const next: OsmMarker[] = [];
+    const index = new Map<string, { lat: number; lng: number; label: string }>();
 
-  // ── Expo Go fallback ────────────────────────────────────────────────────────
-  if (!MapView) {
-    return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#0F172A' }]}>
-        <Ionicons name="map-outline" size={64} color="#334155" />
-        <Text style={{ color: '#94A3B8', fontSize: 16, fontWeight: '600', marginTop: 16 }}>
-          Harita bu ortamda kullanılamıyor
-        </Text>
-        <Text style={{ color: '#475569', fontSize: 13, marginTop: 8, textAlign: 'center', paddingHorizontal: 40 }}>
-          Harita görünümü için geliştirme build'i (APK) gereklidir.
-        </Text>
-      </View>
-    );
-  }
+    mappedOrders.forEach((order) => {
+      const id = `wo-${order.id}`;
+      const label = order.customerName || order.title || 'İş Emri';
+      next.push({
+        id,
+        latitude: order.position[0],
+        longitude: order.position[1],
+        title: label,
+        description: 'Dokunarak yol tarifi alın',
+        color: '#F97316',
+      });
+      index.set(id, { lat: order.position[0], lng: order.position[1], label });
+    });
+
+    markerIndexRef.current = index;
+    return next;
+  }, [mappedOrders]);
+
+  const handleMarkerPress = useCallback((markerId: string) => {
+    const target = markerIndexRef.current.get(markerId);
+    if (!target) return;
+
+    Alert.alert(target.label, 'Yol tarifi almak ister misiniz?', [
+      { text: 'İptal', style: 'cancel' },
+      {
+        text: 'Yol Tarifi Al',
+        onPress: () => openNavigation(target.lat, target.lng, target.label),
+      },
+    ]);
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -170,74 +156,19 @@ export default function MapScreen() {
         </View>
       )}
 
-      <MapView
+      <OsmMapView
         ref={mapRef}
-        style={styles.map}
-        provider={PROVIDER_DEFAULT}
         initialRegion={DEFAULT_REGION}
-        showsUserLocation={true}
-        showsMyLocationButton={false}
-      >
-        {/* ── İş Emri işaretleri ─────────────────── */}
-        {showWorkOrders &&
-          mappedOrders.map((order) => (
-            <Marker
-              key={`wo-${order.id}`}
-              coordinate={{ latitude: order.position[0], longitude: order.position[1] }}
-              pinColor="#F97316"
-              title={order.customerName || order.title || 'İş Emri'}
-              description="Yol Tarifi Al →"
-              onCalloutPress={() =>
-                openNavigation(
-                  order.position[0],
-                  order.position[1],
-                  order.customerName || order.title || 'İş Emri',
-                )
-              }
-            />
-          ))}
+        markers={markers}
+        userLocation={userLocation}
+        onMarkerPress={handleMarkerPress}
+        onMapReady={() => setMapReady(true)}
+      />
 
-        {/* ── Canlı takım konumları ───────────────── */}
-        {showTeams &&
-          teamLocations.map((member) => (
-            <Marker
-              key={`tm-${member.userId}`}
-              coordinate={{ latitude: member.latitude, longitude: member.longitude }}
-              pinColor="#38BDF8"
-              title={member.fullName}
-              description={
-                member.updatedAt
-                  ? `Son güncelleme: ${new Date(member.updatedAt).toLocaleTimeString('tr-TR')}`
-                  : 'Konum zamanı bilinmiyor'
-              }
-            />
-          ))}
-      </MapView>
-
-      {/* ── Katman seçici ─────────────────────────── */}
-      <View style={styles.layerPanel}>
-        {(['workorders', 'teams', 'both'] as Layer[]).map((l) => (
-          <TouchableOpacity
-            key={l}
-            style={[styles.layerBtn, layer === l && styles.layerBtnActive]}
-            onPress={() => setLayer(l)}
-          >
-            <Text style={[styles.layerBtnText, layer === l && styles.layerBtnTextActive]}>
-              {l === 'workorders' ? 'İş Emirleri' : l === 'teams' ? 'Personel' : 'Tümü'}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* ── Lejant + son yenileme ──────────────────── */}
       <View style={styles.legend}>
         <View style={styles.legendRow}>
           <View style={[styles.legendDot, { backgroundColor: '#F97316' }]} />
-          <Text style={styles.legendText}>İş Emri ({mappedOrders.length})</Text>
-        </View>
-        <View style={styles.legendRow}>
-          <View style={[styles.legendDot, { backgroundColor: '#38BDF8' }]} />
-          <Text style={styles.legendText}>Personel ({activeTeamCount})</Text>
+          <Text style={styles.legendText}>İş Emirlerim ({mappedOrders.length})</Text>
         </View>
         {lastRefreshed && (
           <Text style={styles.refreshText}>
@@ -246,7 +177,6 @@ export default function MapScreen() {
         )}
       </View>
 
-      {/* ── FAB grubu ─────────────────────────────── */}
       <View style={styles.fabColumn}>
         <TouchableOpacity style={styles.fab} onPress={goToUserLocation}>
           <Ionicons name="locate-outline" size={22} color="#fff" />
@@ -254,7 +184,7 @@ export default function MapScreen() {
         <TouchableOpacity style={[styles.fab, { backgroundColor: '#334155' }]} onPress={goToAnkara}>
           <Ionicons name="home-outline" size={22} color="#fff" />
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.fab, { backgroundColor: '#334155' }]} onPress={refreshAll}>
+        <TouchableOpacity style={[styles.fab, { backgroundColor: '#334155' }]} onPress={loadWorkOrders}>
           <Ionicons name="refresh-outline" size={22} color="#fff" />
         </TouchableOpacity>
       </View>
@@ -262,11 +192,8 @@ export default function MapScreen() {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  map: { flex: 1 },
-
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 99,
@@ -275,23 +202,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: { color: '#94A3B8', marginTop: 12, fontSize: 14 },
-
-  layerPanel: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 50 : 16,
-    alignSelf: 'center',
-    flexDirection: 'row',
-    backgroundColor: '#1E293Bee',
-    borderRadius: 20,
-    padding: 4,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  layerBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 16 },
-  layerBtnActive: { backgroundColor: '#F97316' },
-  layerBtnText: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
-  layerBtnTextActive: { color: '#fff' },
-
   legend: {
     position: 'absolute',
     bottom: 24,
@@ -307,7 +217,6 @@ const styles = StyleSheet.create({
   legendDot: { width: 10, height: 10, borderRadius: 5 },
   legendText: { color: '#E2E8F0', fontSize: 12 },
   refreshText: { color: '#475569', fontSize: 10, marginTop: 2 },
-
   fabColumn: {
     position: 'absolute',
     bottom: 24,
@@ -328,8 +237,4 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 4,
   },
-
-  callout: { padding: 6, minWidth: 140, maxWidth: 200 },
-  calloutTitle: { fontSize: 13, fontWeight: '700', color: '#1E293B', marginBottom: 2 },
-  calloutSub: { fontSize: 11, color: '#475569' },
 });

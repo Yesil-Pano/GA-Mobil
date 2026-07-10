@@ -88,7 +88,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 resizeMode="contain"
               />
               <Text style={styles.logoTitle}>GÖREV ADAMI</Text>
-              <Text style={styles.logoSubtitle}>YEŞİL PANO MOBİL OPERASYON</Text>
+              <Text style={styles.logoSubtitle}>YEŞİL AYAK İZİ MOBİL OPERASYONU</Text>
             </View>
 
             {/* ── Form ─────────────────────────────────── */}

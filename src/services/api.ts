@@ -38,8 +38,8 @@ export const authApi = {
 // ─── Work Orders API ─────────────────────────────────────────────────────────
 
 export const workOrdersApi = {
-  /** GET /workorders → WorkOrder[] */
-  getAll: () => api.get<WorkOrder[]>('/workorders'),
+  /** GET /workorders → WorkOrder[] (scope=mine: yalnızca oturum açan kullanıcıya atananlar) */
+  getAll: () => api.get<WorkOrder[]>('/workorders', { params: { scope: 'mine' } }),
 
   /** GET /workorders/lookups → { personnel, types, categories } */
   getLookups: () => api.get<FormLookups>('/workorders/lookups'),
@@ -47,9 +47,16 @@ export const workOrdersApi = {
   /** POST /workorders */
   create: (data: CreateWorkOrderDto) => api.post<{ message: string }>('/workorders', data),
 
-  /** PATCH /workorders/{id}/status */
+  /** PUT /workorders/{id}/status */
   updateStatus: (id: string, status: string, fieldNote?: string) =>
-    api.patch<{ message: string; status: string }>(`/workorders/${id}/status`, { status, fieldNote }),
+    api.put<{ message: string; status: string }>(`/workorders/${id}/status`, { status, fieldNote }),
+
+  /** PUT /workorders/{id}/schedule — başlangıç/bitiş tarih güncelleme */
+  updateSchedule: (id: string, startDate: Date, endDate: Date) =>
+    api.put<{ message: string; startDate: string; endDate: string }>(`/workorders/${id}/schedule`, {
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+    }),
 };
 
 // ─── Users API ────────────────────────────────────────────────────────────────
@@ -89,16 +96,28 @@ export const photosApi = {
     entityType: string;
     entityId: string;
     description?: string;
-  }) => api.post<{ id: string }>('/photos', payload),
+  }) => api.post<{ id: string }>('/photos', payload, { timeout: 120_000 }),
 
   /** GET /photos/{entityType}/{entityId} — metadata listesi */
   list: (entityType: string, entityId: string) =>
-    api.get<Array<{ id: string; fileName: string; fileSize: number; createdAt: string }>>(
+    api.get<Array<{ id: string; fileName: string; fileSize: number; createdAt: string; description?: string | null }>>(
       `/photos/${entityType}/${entityId}`,
     ),
+
+  /** GET /photos/{id}/image — görüntü URI (Authorization header gerekir) */
+  imageUri: (photoId: string) => `${api.defaults.baseURL}/photos/${photoId}/image`,
 
   /** DELETE /photos/{id} */
   remove: (id: string) => api.delete(`/photos/${id}`),
 };
+
+/** Fotoğraf görüntüsü için auth header'lı Image source */
+export async function getPhotoImageSource(photoId: string) {
+  const token = await SecureStore.getItemAsync('user_token');
+  return {
+    uri: photosApi.imageUri(photoId),
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  };
+}
 
 export default api;

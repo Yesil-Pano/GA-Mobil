@@ -38,6 +38,8 @@ export interface WorkOrder {
   operationUserName: string;
   openedByUserName: string;
   assignedToUserName: string;
+  fieldNote?: string | null;
+  fieldNoteAddedAt?: string | null;
   isPeriodic?: boolean;
   recurrenceInterval?: string;
   nextExecutionDate?: string | null;
@@ -99,12 +101,24 @@ export interface TeamMemberLocation {
   updatedAt: string | null;
 }
 
+import type { PhotoCategory } from '../constants/photos';
+
 /** Mobilde seçilen fotoğraf — URI (görüntü) + base64 (yükleme) */
 export interface PhotoItem {
   uri: string;
   base64: string;
   fileName: string;
   mimeType: string;
+  category: PhotoCategory;
+}
+
+/** Sunucudan yüklenen fotoğraf metadata + görüntü URI */
+export interface SavedPhotoItem {
+  id: string;
+  uri: string;
+  fileName: string;
+  category: PhotoCategory | null;
+  headers?: Record<string, string>;
 }
 
 // ─── Navigation Param Lists ───────────────────────────────────────────────────

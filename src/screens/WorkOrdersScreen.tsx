@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { workOrdersApi } from '../services/api';
+import { extractApiErrorMessage, filterWorkOrdersForUser, getCurrentUserId, ensureAlertMessage } from '../utils/workOrders';
 import type { WorkOrder, WorkOrdersStackParamList } from '../types';
 
 type NavProp = NativeStackNavigationProp<WorkOrdersStackParamList, 'WorkOrdersList'>;
@@ -27,9 +28,12 @@ const STATUS_ORDER: Record<string, number> = {
 };
 
 function sortOrders(list: WorkOrder[]) {
-  return [...list].sort(
-    (a, b) => (STATUS_ORDER[a.status] ?? 1) - (STATUS_ORDER[b.status] ?? 1),
-  );
+  return [...list].sort((a, b) => {
+    const statusDiff = (STATUS_ORDER[a.status] ?? 1) - (STATUS_ORDER[b.status] ?? 1);
+    if (statusDiff !== 0) return statusDiff;
+    // Aynı durumda en yeni (startDate) üstte
+    return (b.startDate ?? '').localeCompare(a.startDate ?? '');
+  });
 }
 const STATUS_COLORS: Record<string, string> = {
   'Bekliyor':    '#F59E0B',
@@ -107,15 +111,37 @@ export default function WorkOrdersScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
+  const hasLoadedOnceRef = useRef(false);
 
   const fetchOrders = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const { data } = await workOrdersApi.getAll();
-      setOrders(data);
-      applyFilter(data, search, activeFilter);
-    } catch (err: any) {
-      Alert.alert('Hata', 'İş emirleri yüklenemedi. Lütfen bağlantınızı kontrol edin.');
+      const [{ data }, userId] = await Promise.all([workOrdersApi.getAll(), getCurrentUserId()]);
+      if (!userId) {
+        if (!silent) {
+          Alert.alert(
+            'Oturum',
+            'Kullanıcı bilgisi bulunamadı. Lütfen çıkış yapıp tekrar giriş yapın.',
+          );
+        }
+        setOrders([]);
+        setFiltered([]);
+        return;
+      }
+      const mine = filterWorkOrdersForUser(data, userId);
+      setOrders(mine);
+      applyFilter(mine, search, activeFilter);
+      hasLoadedOnceRef.current = true;
+    } catch (err) {
+      if (!silent || !hasLoadedOnceRef.current) {
+        Alert.alert(
+          'Hata',
+          ensureAlertMessage(
+            extractApiErrorMessage(err, 'İş emirleri yüklenemedi.'),
+            'İş emirleri yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.',
+          ),
+        );
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -245,7 +271,16 @@ export default function WorkOrdersScreen() {
         ListEmptyComponent={
           <View style={styles.empty}>
             <Ionicons name="clipboard-outline" size={48} color="#334155" />
-            <Text style={styles.emptyText}>Hiç iş emri bulunamadı</Text>
+            <Text style={styles.emptyText}>
+              {search || activeFilter
+                ? 'Arama kriterlerine uygun iş emri yok'
+                : 'Size atanmış iş emri bulunmuyor'}
+            </Text>
+            {!search && !activeFilter && (
+              <Text style={styles.emptySubText}>
+                Yöneticinizden size iş emri atanmasını isteyebilirsiniz.
+              </Text>
+            )}
             {!!search && (
               <Text style={styles.emptySubText}>"{search}" araması için sonuç yok</Text>
             )}
