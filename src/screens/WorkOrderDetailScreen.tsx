@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 
 import {
 
@@ -512,7 +512,7 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
     if (operasyonCount === 0) {
 
-      Alert.alert('Eksik Fotoğraf', 'Lütfen en az bir Operasyon fotoğrafı ekleyin.');
+      Alert.alert('Eksik Fotoğraf', 'Lütfen en az bir Operasyoncu fotoğrafı ekleyin.');
 
       return;
 
@@ -862,7 +862,7 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
           <PhotoSection
 
-            title="OPERASYON"
+            title="Operasyoncu"
 
             category={PHOTO_CATEGORY_OPERASYON}
 
