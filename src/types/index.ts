@@ -101,6 +101,26 @@ export interface TeamMemberLocation {
   updatedAt: string | null;
 }
 
+// ─── Chat Models (ofis ↔ saha 1:1) ────────────────────────────────────────────
+
+export interface ChatMessageDto {
+  id: string;
+  conversationId: string;
+  senderUserId: string;
+  senderName: string;
+  isFromFieldWorker: boolean;
+  body: string;
+  sentAt: string;
+  clientMessageId?: string | null;
+}
+
+export interface MyConversationResponse {
+  id: string;
+  counterpartyLabel: string;
+  unreadCount: number;
+  messages: ChatMessageDto[];
+}
+
 import type { PhotoCategory } from '../constants/photos';
 
 /** Mobilde seçilen fotoğraf — URI (görüntü) + base64 (yükleme) */

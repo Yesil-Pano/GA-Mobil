@@ -9,10 +9,13 @@ import type {
   UserProfile,
   TeamMember,
   TeamMemberLocation,
+  ChatMessageDto,
+  MyConversationResponse,
 } from '../types';
 // ─── Axios Instance ───────────────────────────────────────────────────────────
 
 const api = axios.create({
+  // Saha APK: HTTP (cleartext). Sunucuda bu porta giden instance güncel backend olmalı.
   baseURL: 'http://204.168.249.86:8080/api',
   timeout: 15000,
   headers: { 'Content-Type': 'application/json' },
@@ -47,13 +50,13 @@ export const workOrdersApi = {
   /** POST /workorders */
   create: (data: CreateWorkOrderDto) => api.post<{ message: string }>('/workorders', data),
 
-  /** PUT /workorders/{id}/status */
+  /** PUT|POST /workorders/{id}/status — nginx PUT engeline karşı POST yedek */
   updateStatus: (id: string, status: string, fieldNote?: string) =>
-    api.put<{ message: string; status: string }>(`/workorders/${id}/status`, { status, fieldNote }),
+    api.post<{ message: string; status: string }>(`/workorders/${id}/status`, { status, fieldNote }),
 
-  /** PUT /workorders/{id}/schedule — başlangıç/bitiş tarih güncelleme */
+  /** PUT|POST /workorders/{id}/schedule — nginx PUT engeline karşı POST yedek */
   updateSchedule: (id: string, startDate: Date, endDate: Date) =>
-    api.put<{ message: string; startDate: string; endDate: string }>(`/workorders/${id}/schedule`, {
+    api.post<{ message: string; startDate: string; endDate: string }>(`/workorders/${id}/schedule`, {
       startDate: startDate.toISOString(),
       endDate: endDate.toISOString(),
     }),
@@ -110,6 +113,31 @@ export const photosApi = {
   /** DELETE /photos/{id} */
   remove: (id: string) => api.delete(`/photos/${id}`),
 };
+
+// ─── Chat API (ofis ↔ saha) ───────────────────────────────────────────────────
+
+export const chatApi = {
+  /** GET /chat/conversation — kendi Operasyon konuşması */
+  getMyConversation: (take = 50) =>
+    api.get<MyConversationResponse>('/chat/conversation', { params: { take } }),
+
+  /** POST /chat/messages — kendi konuşmasına gönder */
+  sendMessage: (body: string, clientMessageId?: string) =>
+    api.post<ChatMessageDto>('/chat/messages', { body, clientMessageId }),
+
+  /** POST /chat/conversations/{id}/read (nginx PUT engeli için) */
+  markRead: (conversationId: string) =>
+    api.post<{ message: string }>(`/chat/conversations/${conversationId}/read`),
+
+  /** GET /chat/unread-count */
+  unreadCount: () => api.get<{ count: number }>('/chat/unread-count'),
+};
+
+/** SignalR hub tabanı — api baseURL'den /api kaldırılır */
+export function getChatHubUrl(): string {
+  const base = String(api.defaults.baseURL || '').replace(/\/api\/?$/, '');
+  return `${base}/hubs/chat`;
+}
 
 /** Fotoğraf görüntüsü için auth header'lı Image source */
 export async function getPhotoImageSource(photoId: string) {

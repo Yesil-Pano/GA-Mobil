@@ -17,6 +17,7 @@ import OverviewScreen from './src/screens/OverviewScreen';
 import ChatScreen from './src/screens/ChatScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import NotificationPanel from './src/components/NotificationPanel';
+import { chatApi } from './src/services/api';
 
 // ─── Arka plan konum görevi — import yalnızca TaskManager'a kaydettirmek için ─
 import './src/tasks/locationTask';
@@ -48,6 +49,7 @@ const LOCATION_BOOTSTRAP_DELAY_MS = 6_000;      // Harita/WebView ile çakışma
 export default function App() {
   const [authState, setAuthState] = useState<'loading' | 'authenticated' | 'unauthenticated'>('loading');
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [chatUnread, setChatUnread] = useState(0);
   const foregroundTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => { checkLoginStatus(); }, []);
@@ -159,6 +161,31 @@ export default function App() {
     }, LOCATION_BOOTSTRAP_DELAY_MS);
 
     return () => clearTimeout(timer);
+  }, [authState]);
+
+  // Sohbet okunmamış sayacı
+  useEffect(() => {
+    if (authState !== 'authenticated') {
+      setChatUnread(0);
+      return;
+    }
+
+    let cancelled = false;
+    const refreshUnread = async () => {
+      try {
+        const { data } = await chatApi.unreadCount();
+        if (!cancelled) setChatUnread(data?.count ?? 0);
+      } catch {
+        /* sessiz */
+      }
+    };
+
+    refreshUnread();
+    const interval = setInterval(refreshUnread, 45_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, [authState]);
 
   // Uygulama ön plana gelince tek seferlik konum gönder (düşük pil maliyeti)
@@ -276,7 +303,28 @@ export default function App() {
           <Tab.Screen name="Genel Bakış" component={OverviewScreen} />
 
           {/* ── Sohbet ─── */}
-          <Tab.Screen name="Sohbet" component={ChatScreen} />
+          <Tab.Screen
+            name="Sohbet"
+            component={ChatScreen}
+            options={{
+              tabBarBadge: chatUnread > 0 ? chatUnread : undefined,
+              tabBarBadgeStyle: {
+                backgroundColor: '#EF4444',
+                color: '#fff',
+                fontSize: 10,
+                minWidth: 16,
+                height: 16,
+                lineHeight: 14,
+              },
+            }}
+            listeners={{
+              focus: () => {
+                chatApi.unreadCount()
+                  .then(({ data }) => setChatUnread(data?.count ?? 0))
+                  .catch(() => undefined);
+              },
+            }}
+          />
 
           {/* ── Profil (needs onLogout prop) ─── */}
           <Tab.Screen name="Profil">
