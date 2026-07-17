@@ -36,11 +36,9 @@ import { extractApiErrorMessage, ensureAlertMessage } from '../utils/workOrders'
 
 import {
 
-  formatWorkOrderDate,
+  formatApiDateTime,
 
-  isArızaWorkOrder,
-
-  parseWorkOrderDate,
+  durationMinutes,
 
 } from '../utils/workOrderSchedule';
 
@@ -59,8 +57,6 @@ import {
 } from '../constants/photos';
 
 import PhotoSection, { usePhotoBuckets } from '../components/PhotoSection';
-
-import DateTimeField from '../components/DateTimeField';
 
 import type { PhotoItem, SavedPhotoItem } from '../types';
 
@@ -132,15 +128,11 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
   const [loadingAttachments, setLoadingAttachments] = useState(true);
 
-  const [startDate, setStartDate] = useState<Date>(() => parseWorkOrderDate(order.startDate) ?? new Date());
+  const [startedAt, setStartedAt] = useState<string | null>(order.startedAt ?? null);
 
-  const [endDate, setEndDate] = useState<Date>(() => parseWorkOrderDate(order.endDate) ?? new Date());
+  const [completedAt, setCompletedAt] = useState<string | null>(order.completedAt ?? null);
 
-  const [scheduleSaving, setScheduleSaving] = useState(false);
-
-
-
-  const isArıza = isArızaWorkOrder(order);
+  const [cancelledAt, setCancelledAt] = useState<string | null>(order.cancelledAt ?? null);
 
   const isFinished = currentStatus === 'Tamamlandı' || currentStatus === 'İptal';
 
@@ -164,13 +156,15 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
     setSahaNote(order.fieldNote ?? '');
 
-    setStartDate(parseWorkOrderDate(order.startDate) ?? new Date());
+    setStartedAt(order.startedAt ?? null);
 
-    setEndDate(parseWorkOrderDate(order.endDate) ?? new Date());
+    setCompletedAt(order.completedAt ?? null);
+
+    setCancelledAt(order.cancelledAt ?? null);
 
     loadSavedAttachments();
 
-  }, [order.id, order.fieldNote, order.startDate, order.endDate]);
+  }, [order.id, order.fieldNote, order.startedAt, order.completedAt, order.cancelledAt]);
 
 
 
@@ -314,60 +308,6 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
 
 
-  const saveSchedule = async (nextStart: Date, nextEnd: Date) => {
-
-    if (nextEnd < nextStart) {
-
-      Alert.alert('Geçersiz Tarih', 'Bitiş tarihi başlangıç tarihinden önce olamaz.');
-
-      return false;
-
-    }
-
-    setScheduleSaving(true);
-
-    try {
-
-      await workOrdersApi.updateSchedule(order.id, nextStart, nextEnd);
-
-      return true;
-
-    } catch (err: any) {
-
-      Alert.alert('Hata', extractApiErrorMessage(err, 'Tarihler kaydedilemedi.'));
-
-      return false;
-
-    } finally {
-
-      setScheduleSaving(false);
-
-    }
-
-  };
-
-
-
-  const handleStartDateChange = async (date: Date) => {
-
-    setStartDate(date);
-
-    if (!isFinished) await saveSchedule(date, endDate);
-
-  };
-
-
-
-  const handleEndDateChange = async (date: Date) => {
-
-    setEndDate(date);
-
-    if (!isFinished) await saveSchedule(startDate, date);
-
-  };
-
-
-
   const uploadPendingPhotos = async () => {
 
     if (photos.length === 0) return;
@@ -420,9 +360,15 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
       }
 
-      await workOrdersApi.updateStatus(order.id, newStatus, sahaNote);
+      const res = await workOrdersApi.updateStatus(order.id, newStatus, sahaNote);
 
-      setCurrentStatus(newStatus);
+      setCurrentStatus(res.data.status ?? newStatus);
+
+      if (res.data.startedAt !== undefined) setStartedAt(res.data.startedAt ?? null);
+
+      if (res.data.completedAt !== undefined) setCompletedAt(res.data.completedAt ?? null);
+
+      if (res.data.cancelledAt !== undefined) setCancelledAt(res.data.cancelledAt ?? null);
 
 
 
@@ -662,63 +608,27 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
 
 
-          {isFinished ? (
+          <DetailRow icon="calendar-outline" label="Planlanan Başlangıç" value={formatApiDateTime(order.startDate)} />
 
-            <>
+          <DetailRow icon="calendar-outline" label="Planlanan Bitiş" value={formatApiDateTime(order.endDate)} />
 
-              <DetailRow icon="calendar-outline" label="Başlangıç Tarihi" value={formatWorkOrderDate(startDate)} />
+          <DetailRow icon="play-outline" label="Gerçek Başlangıç" value={formatApiDateTime(startedAt)} />
 
-              <DetailRow icon="calendar-outline" label="Bitiş Tarihi" value={formatWorkOrderDate(endDate)} />
+          {currentStatus === 'İptal' || cancelledAt ? (
 
-            </>
+            <DetailRow icon="close-circle-outline" label="İptal Tarihi" value={formatApiDateTime(cancelledAt)} />
 
           ) : (
 
-            <>
-
-              <DateTimeField
-
-                label={isArıza ? 'Başlangıç Tarihi (arıza kaydında değiştirilemez)' : 'Başlangıç Tarihi'}
-
-                value={startDate}
-
-                onChange={handleStartDateChange}
-
-                disabled={isArıza || scheduleSaving}
-
-              />
-
-              <DateTimeField
-
-                label="Bitiş Tarihi"
-
-                value={endDate}
-
-                onChange={handleEndDateChange}
-
-                disabled={scheduleSaving}
-
-              />
-
-              {scheduleSaving && (
-
-                <View style={styles.scheduleSavingRow}>
-
-                  <ActivityIndicator size="small" color="#F97316" />
-
-                  <Text style={styles.scheduleSavingText}>Tarihler kaydediliyor...</Text>
-
-                </View>
-
-              )}
-
-            </>
+            <DetailRow icon="checkmark-circle-outline" label="Bitiş Tarihi" value={formatApiDateTime(completedAt)} />
 
           )}
 
+          {durationMinutes(startedAt, completedAt) != null && (
 
+            <DetailRow icon="timer-outline" label="Süre (dk)" value={String(durationMinutes(startedAt, completedAt))} />
 
-          <DetailRow icon="calendar-outline" label="Planlanan Tarih" value={order.plannedDate ?? '—'} />
+          )}
 
 
 
@@ -1114,9 +1024,6 @@ const styles = StyleSheet.create({
 
   detailValue: { color: '#E2E8F0', fontSize: 14, fontWeight: '500' },
 
-  scheduleSavingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-
-  scheduleSavingText: { color: '#94A3B8', fontSize: 12 },
 
   mapBtn: {
 

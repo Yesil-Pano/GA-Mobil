@@ -32,6 +32,12 @@ export interface WorkOrder {
   startDate: string;
   endDate: string;
   plannedDate: string;
+  /** Gerçek başlangıç (İşe Başla) — UTC ISO veya yyyy-MM-dd HH:mm */
+  startedAt?: string | null;
+  /** Gerçek bitiş (Tamamla) */
+  completedAt?: string | null;
+  /** İptal tarihi */
+  cancelledAt?: string | null;
   /** [latitude, longitude] */
   position: [number, number];
   assignedToUserId: string | null;

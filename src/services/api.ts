@@ -52,14 +52,13 @@ export const workOrdersApi = {
 
   /** PUT|POST /workorders/{id}/status — nginx PUT engeline karşı POST yedek */
   updateStatus: (id: string, status: string, fieldNote?: string) =>
-    api.post<{ message: string; status: string }>(`/workorders/${id}/status`, { status, fieldNote }),
-
-  /** PUT|POST /workorders/{id}/schedule — nginx PUT engeline karşı POST yedek */
-  updateSchedule: (id: string, startDate: Date, endDate: Date) =>
-    api.post<{ message: string; startDate: string; endDate: string }>(`/workorders/${id}/schedule`, {
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
-    }),
+    api.post<{
+      message: string;
+      status: string;
+      startedAt?: string | null;
+      completedAt?: string | null;
+      cancelledAt?: string | null;
+    }>(`/workorders/${id}/status`, { status, fieldNote }),
 };
 
 // ─── Users API ────────────────────────────────────────────────────────────────
