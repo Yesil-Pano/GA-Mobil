@@ -87,6 +87,38 @@ export const locationApi = {
     api.get<TeamMemberLocation[]>('/locations/team'),
 };
 
+// ─── Notifications API ────────────────────────────────────────────────────────
+
+export const notificationsApi = {
+  /** GET /notifications — sahacı için yalnızca kendisine hedeflenenler */
+  getMine: (take = 20) =>
+    api.get<{
+      unread: number;
+      items: Array<{
+        id: string;
+        title: string;
+        message: string;
+        type: string;
+        workOrderId?: string | null;
+        isRead: boolean;
+        createdAt: string;
+      }>;
+    }>('/notifications', { params: { take } }),
+
+  markRead: (id: string) => api.put(`/notifications/${id}/read`),
+  markAllRead: () => api.put('/notifications/read-all'),
+};
+
+// ─── Devices / Push ───────────────────────────────────────────────────────────
+
+export const devicesApi = {
+  registerPushToken: (payload: { token: string; platform?: string; deviceName?: string }) =>
+    api.post<{ message: string }>('/devices/push-token', payload),
+
+  unregisterPushToken: (payload: { token: string }) =>
+    api.delete<{ message: string }>('/devices/push-token', { data: payload }),
+};
+
 // ─── Photos API ───────────────────────────────────────────────────────────────
 
 export const photosApi = {

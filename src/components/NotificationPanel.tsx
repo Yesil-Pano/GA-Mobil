@@ -9,9 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { workOrdersApi } from '../services/api';
-import { filterWorkOrdersForUser, getCurrentUserId } from '../utils/workOrders';
-import type { WorkOrder } from '../types';
+import { notificationsApi } from '../services/api';
 
 export interface AppNotification {
   id: string;
@@ -21,71 +19,26 @@ export interface AppNotification {
   color: string;
 }
 
-function buildNotifications(orders: WorkOrder[]): AppNotification[] {
-  const items: AppNotification[] = [];
-  const now = new Date();
-
-  const pending = orders.filter((o) => o.status === 'Bekliyor');
-  const inProgress = orders.filter((o) => o.status === 'Devam Ediyor');
-  const today = now.toISOString().slice(0, 10);
-  const todayOrders = orders.filter((o) => o.startDate?.startsWith(today));
-
-  if (pending.length > 0) {
-    items.push({
-      id: 'pending',
-      text: `${pending.length} iş emri sizin onayınızı/başlatmanızı bekliyor.`,
-      time: 'Şimdi',
-      icon: 'time-outline',
-      color: '#F59E0B',
+function formatTime(iso?: string) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString('tr-TR', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
     });
+  } catch {
+    return iso;
   }
+}
 
-  if (inProgress.length > 0) {
-    items.push({
-      id: 'in-progress',
-      text: `${inProgress.length} iş emri şu anda "Devam Ediyor" durumunda.`,
-      time: 'Güncel',
-      icon: 'reload-circle-outline',
-      color: '#3B82F6',
-    });
-  }
-
-  if (todayOrders.length > 0) {
-    items.push({
-      id: 'today',
-      text: `Bugün için planlanan ${todayOrders.length} iş emriniz var.`,
-      time: 'Bugün',
-      icon: 'today-outline',
-      color: '#F97316',
-    });
-  }
-
-  const recent = [...orders]
-    .filter((o) => o.status === 'Tamamlandı' || o.status === 'İptal')
-    .sort((a, b) => (b.endDate ?? '').localeCompare(a.endDate ?? ''))
-    .slice(0, 2);
-
-  recent.forEach((order) => {
-    items.push({
-      id: `recent-${order.id}`,
-      text: `"${order.customerName || order.title}" iş emri ${order.status.toLowerCase()} olarak işaretlendi.`,
-      time: order.endDate ?? 'Yakın zamanda',
-      icon: order.status === 'Tamamlandı' ? 'checkmark-circle-outline' : 'close-circle-outline',
-      color: order.status === 'Tamamlandı' ? '#22C55E' : '#EF4444',
-    });
-  });
-
-  if (items.length === 0) {
-    items.push({
-      id: 'empty',
-      text: 'Şu an gösterilecek yeni bildirim yok.',
-      time: '—',
-      icon: 'notifications-off-outline',
-      color: '#64748B',
-    });
-  }
-
-  return items;
+function mapIcon(type: string): { icon: keyof typeof Ionicons.glyphMap; color: string } {
+  if (type === 'WorkOrderAssigned') return { icon: 'person-add-outline', color: '#F97316' };
+  if (type === 'WorkOrderStatusChanged') return { icon: 'reload-circle-outline', color: '#3B82F6' };
+  if (type === 'WorkOrderPeriodic') return { icon: 'repeat-outline', color: '#22C55E' };
+  return { icon: 'notifications-outline', color: '#64748B' };
 }
 
 interface Props {
@@ -100,8 +53,31 @@ export default function NotificationPanel({ visible, onClose }: Props) {
   const loadNotifications = useCallback(async () => {
     setLoading(true);
     try {
-      const [{ data }, userId] = await Promise.all([workOrdersApi.getAll(), getCurrentUserId()]);
-      setNotifications(buildNotifications(filterWorkOrdersForUser(data, userId)));
+      const { data } = await notificationsApi.getMine(20);
+      const items = (data.items || []).map((n) => {
+        const meta = mapIcon(n.type);
+        return {
+          id: n.id,
+          text: n.title ? `${n.title}: ${n.message}` : n.message,
+          time: formatTime(n.createdAt),
+          icon: meta.icon,
+          color: meta.color,
+        };
+      });
+
+      setNotifications(
+        items.length > 0
+          ? items
+          : [
+              {
+                id: 'empty',
+                text: 'Size atanmış yeni bildirim yok.',
+                time: '—',
+                icon: 'notifications-off-outline',
+                color: '#64748B',
+              },
+            ]
+      );
     } catch {
       setNotifications([
         {

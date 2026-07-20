@@ -2,7 +2,7 @@
   "expo": {
     "name": "Görev Adamı",
     "slug": "GA-Mobil",
-    "version": "1.0.5",
+    "version": "1.0.7",
     "orientation": "portrait",
     "newArchEnabled": true,
     "updates": {
@@ -37,7 +37,10 @@
         "ACCESS_FINE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
         "FOREGROUND_SERVICE",
-        "FOREGROUND_SERVICE_LOCATION"
+        "FOREGROUND_SERVICE_LOCATION",
+        "POST_NOTIFICATIONS",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE"
       ]
     },
     "web": {
@@ -56,8 +59,23 @@
           "isIosBackgroundLocationEnabled": true
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#F97316",
+          "defaultChannel": "default",
+          "sounds": []
+        }
+      ]
     ],
+    "notification": {
+      "icon": "./assets/icon.png",
+      "color": "#F97316",
+      "androidMode": "default",
+      "androidCollapsedTitle": "Görev Adamı"
+    },
     "extra": {
       "eas": {
         "projectId": "c456ef14-36f7-4312-8b69-aa3f69042a8b"

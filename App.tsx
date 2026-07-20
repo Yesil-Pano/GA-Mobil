@@ -23,6 +23,11 @@ import { chatApi } from './src/services/api';
 import './src/tasks/locationTask';
 import { LOCATION_TASK_NAME, pushLocationToBackend } from './src/tasks/locationTask';
 import { resolveUserLocation } from './src/utils/location';
+import {
+  registerForPushNotificationsAsync,
+  unregisterPushToken,
+  addNotificationResponseListener,
+} from './src/utils/pushNotifications';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 import type { WorkOrdersStackParamList, RootTabParamList } from './src/types';
@@ -51,6 +56,8 @@ export default function App() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [chatUnread, setChatUnread] = useState(0);
   const foregroundTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const pushTokenRef = React.useRef<string | null>(null);
+  const navigationRef = React.useRef<any>(null);
 
   useEffect(() => { checkLoginStatus(); }, []);
 
@@ -73,12 +80,43 @@ export default function App() {
   const handleLogout = async () => {
     stopForegroundTimer();
     await stopBackgroundLocation();
+    await unregisterPushToken(pushTokenRef.current);
+    pushTokenRef.current = null;
     await SecureStore.deleteItemAsync('user_token');
     await SecureStore.deleteItemAsync('user_id');
     await SecureStore.deleteItemAsync('user_name');
     await SecureStore.deleteItemAsync('remember_me');
     setAuthState('unauthenticated');
   };
+
+  // OS push: giriş sonrası token kaydı (hata uygulamayı düşürmez)
+  useEffect(() => {
+    if (authState !== 'authenticated') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await registerForPushNotificationsAsync();
+        if (!cancelled) pushTokenRef.current = token;
+      } catch (err) {
+        console.warn('[App] Push kaydı atlandı:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [authState]);
+
+  // Bildirime tıklanınca ilgili ekrana git
+  useEffect(() => {
+    if (authState !== 'authenticated') return;
+    const sub = addNotificationResponseListener((data) => {
+      const type = String(data.type ?? '');
+      if (type === 'ChatMessage') {
+        navigationRef.current?.navigate?.('Sohbet');
+      } else if (type === 'WorkOrderAssigned') {
+        navigationRef.current?.navigate?.('İş Emirleri');
+      }
+    });
+    return () => sub.remove();
+  }, [authState]);
 
   // ── Konum gönder (arka plan görevinden bağımsız, her zaman çalışır) ──────────
   const sendCurrentLocation = async () => {
@@ -213,7 +251,7 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <StatusBar barStyle="light-content" backgroundColor="#1A233A" />
 
       {authState === 'unauthenticated' ? (
