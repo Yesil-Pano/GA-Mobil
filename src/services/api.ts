@@ -12,6 +12,7 @@ import type {
   ChatMessageDto,
   MyConversationResponse,
 } from '../types';
+import { emitAuthSessionExpired } from '../utils/authSession';
 // ─── Axios Instance ───────────────────────────────────────────────────────────
 
 const api = axios.create({
@@ -27,8 +28,34 @@ api.interceptors.request.use(async (config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  // Multi-tenant: partnerKey ASLA gönderilmez — saha kullanıcısı yalnız kendi TenantId'si ile çalışır.
   return config;
 });
+
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const status = error.response?.status;
+    const code = error.response?.data?.code;
+    if (status === 401 || code === 'DEMO_EXPIRED' || code === 'TENANT_INACTIVE') {
+      if (code === 'DEMO_EXPIRED') {
+        await SecureStore.setItemAsync(
+          'ga_logout_reason',
+          error.response?.data?.message || 'Demo süreniz dolmuştur. Erişim kapatıldı.',
+        );
+      } else if (code === 'TENANT_INACTIVE') {
+        await SecureStore.setItemAsync(
+          'ga_logout_reason',
+          error.response?.data?.message || 'Firma erişimi kapatıldı.',
+        );
+      }
+      await SecureStore.deleteItemAsync('user_token');
+      await SecureStore.deleteItemAsync('remember_me');
+      emitAuthSessionExpired();
+    }
+    return Promise.reject(error);
+  },
+);
 
 // ─── Auth API ────────────────────────────────────────────────────────────────
 
@@ -39,6 +66,18 @@ export const authApi = {
 };
 
 // ─── Work Orders API ─────────────────────────────────────────────────────────
+
+export const usersApi = {
+  /** GET /users/me → UserProfile (requires Bearer token) */
+  getProfile: () => api.get<UserProfile>('/users/me'),
+
+  /** GET /users/me/authorization-document → PDF blob (Yetki Belgesi) */
+  getAuthorizationDocument: () =>
+    api.get<ArrayBuffer>('/users/me/authorization-document', {
+      responseType: 'arraybuffer',
+      timeout: 60_000,
+    }),
+};
 
 export const workOrdersApi = {
   /** GET /workorders → WorkOrder[] (scope=mine: yalnızca oturum açan kullanıcıya atananlar) */
@@ -59,13 +98,17 @@ export const workOrdersApi = {
       completedAt?: string | null;
       cancelledAt?: string | null;
     }>(`/workorders/${id}/status`, { status, fieldNote }),
-};
 
-// ─── Users API ────────────────────────────────────────────────────────────────
-
-export const usersApi = {
-  /** GET /users/me → UserProfile (requires Bearer token) */
-  getProfile: () => api.get<UserProfile>('/users/me'),
+  /** POST /workorders/{id}/translate — TR→EN (TESLA) */
+  translate: (id: string) =>
+    api.post<{
+      titleEn?: string;
+      descriptionEn?: string;
+      mobileDescriptionEn?: string;
+      fieldNoteEn?: string | null;
+      translationProvider?: string;
+      translatedAt?: string;
+    }>(`/workorders/${id}/translate`, null, { timeout: 90_000 }),
 };
 
 // ─── Teams / Map API ──────────────────────────────────────────────────────────

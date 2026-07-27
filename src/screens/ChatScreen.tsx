@@ -22,6 +22,7 @@ import {
 } from '@microsoft/signalr';
 import { chatApi, getChatHubUrl } from '../services/api';
 import type { ChatMessageDto } from '../types';
+import { useTheme } from '../theme/ThemeContext';
 
 type ListItem =
   | { kind: 'msg'; data: ChatMessageDto }
@@ -95,6 +96,7 @@ function MessageBubble({
 }
 
 export default function ChatScreen() {
+  const { colors } = useTheme();
   const [messages, setMessages] = useState<ChatMessageDto[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [input, setInput] = useState('');
@@ -291,7 +293,7 @@ export default function ChatScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: colors.bg }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
@@ -379,7 +381,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  muted: { color: '#94A3B8', marginTop: 12, fontSize: 14 },
+  muted: { color: '#94A3B8', marginTop: 12, fontSize: 16 },
 
   headerBar: {
     flexDirection: 'row',
@@ -402,8 +404,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerTextWrap: { flex: 1 },
-  headerTitle: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  headerSub: { color: '#94A3B8', fontSize: 12, marginTop: 1 },
+  headerTitle: { color: '#fff', fontSize: 18, fontWeight: '700' },
+  headerSub: { color: '#94A3B8', fontSize: 14, marginTop: 1 },
 
   errorBar: {
     flexDirection: 'row',
@@ -415,7 +417,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#F9731633',
   },
-  errorText: { color: '#F97316', fontSize: 12, fontWeight: '600', flex: 1 },
+  errorText: { color: '#F97316', fontSize: 14, fontWeight: '600', flex: 1 },
 
   emptyWrap: {
     flex: 1,
@@ -425,13 +427,13 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     color: '#E2E8F0',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
     marginTop: 12,
   },
   emptySub: {
     color: '#94A3B8',
-    fontSize: 13,
+    fontSize: 15,
     textAlign: 'center',
     marginTop: 6,
     lineHeight: 18,
@@ -441,7 +443,7 @@ const styles = StyleSheet.create({
   daySep: { alignItems: 'center', marginVertical: 10 },
   daySepText: {
     color: '#94A3B8',
-    fontSize: 11,
+    fontSize: 13,
     backgroundColor: '#1E293B',
     paddingHorizontal: 10,
     paddingVertical: 4,
@@ -465,16 +467,16 @@ const styles = StyleSheet.create({
   bubbleMe: { backgroundColor: '#F97316' },
   senderName: {
     color: '#CBD5E1',
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '700',
     marginBottom: 4,
   },
   senderRole: { color: '#94A3B8', fontWeight: '500' },
-  bubbleText: { color: '#E2E8F0', fontSize: 14, lineHeight: 20 },
+  bubbleText: { color: '#E2E8F0', fontSize: 16, lineHeight: 20 },
   bubbleTextMe: { color: '#fff' },
   bubbleTime: {
     color: '#64748B',
-    fontSize: 10,
+    fontSize: 12,
     marginTop: 4,
     alignSelf: 'flex-end',
   },
@@ -499,7 +501,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     color: '#E2E8F0',
-    fontSize: 14,
+    fontSize: 16,
     maxHeight: 100,
   },
   sendBtn: {

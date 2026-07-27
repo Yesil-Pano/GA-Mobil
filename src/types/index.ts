@@ -49,6 +49,13 @@ export interface WorkOrder {
   isPeriodic?: boolean;
   recurrenceInterval?: string;
   nextExecutionDate?: string | null;
+  titleEn?: string | null;
+  descriptionEn?: string | null;
+  mobileDescriptionEn?: string | null;
+  fieldNoteEn?: string | null;
+  translationProvider?: string | null;
+  translatedAt?: string | null;
+  tenantId?: string | null;
 }
 
 export interface CreateWorkOrderDto {
@@ -81,6 +88,10 @@ export interface UserProfile {
   fullName: string;
   email: string;
   companyName: string;
+  tenantId?: string | null;
+  hasAuthorizationDocument?: boolean;
+  authorizationDocumentFileName?: string | null;
+  authorizationDocumentFileSize?: number | null;
 }
 
 // ─── Team / Map Models ────────────────────────────────────────────────────────

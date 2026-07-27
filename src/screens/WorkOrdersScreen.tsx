@@ -16,113 +16,118 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { workOrdersApi } from '../services/api';
 import { extractApiErrorMessage, filterWorkOrdersForUser, getCurrentUserId, ensureAlertMessage } from '../utils/workOrders';
 import type { WorkOrder, WorkOrdersStackParamList } from '../types';
+import { useTheme } from '../theme/ThemeContext';
+import type { AppColors } from '../theme/ThemeContext';
 
 type NavProp = NativeStackNavigationProp<WorkOrdersStackParamList, 'WorkOrdersList'>;
 
-// Aktif işler önde, tamamlanan/iptal en sonda
 const STATUS_ORDER: Record<string, number> = {
   'Devam Ediyor': 0,
-  'Bekliyor':     1,
-  'Tamamlandı':   2,
-  'İptal':        3,
+  'Bekliyor': 1,
+  'Tamamlandı': 2,
+  'İptal': 3,
 };
 
 function sortOrders(list: WorkOrder[]) {
   return [...list].sort((a, b) => {
     const statusDiff = (STATUS_ORDER[a.status] ?? 1) - (STATUS_ORDER[b.status] ?? 1);
     if (statusDiff !== 0) return statusDiff;
-    // Aynı durumda en yeni (startDate) üstte
     return (b.startDate ?? '').localeCompare(a.startDate ?? '');
   });
 }
+
 const STATUS_COLORS: Record<string, string> = {
-  'Bekliyor':    '#F59E0B',
+  'Bekliyor': '#F59E0B',
   'Devam Ediyor': '#3B82F6',
-  'Tamamlandı':  '#22C55E',
-  'İptal':       '#EF4444',
+  'Tamamlandı': '#22C55E',
+  'İptal': '#EF4444',
 };
 
 function statusColor(status: string): string {
   return STATUS_COLORS[status] ?? '#64748B';
 }
 
-// ─── Work order card ──────────────────────────────────────────────────────────
 interface CardProps {
   order: WorkOrder;
   index: number;
   onPress: () => void;
+  colors: AppColors;
+  fs: (n: number) => number;
 }
 
-function WorkOrderCard({ order, index, onPress }: CardProps) {
+function WorkOrderCard({ order, index, onPress, colors, fs }: CardProps) {
   const badgeColor = statusColor(order.status);
   return (
-    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.85}>
+    <TouchableOpacity
+      style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
+      onPress={onPress}
+      activeOpacity={0.85}
+    >
       <View style={[styles.cardAccent, { backgroundColor: badgeColor }]} />
       <View style={styles.cardBody}>
         <View style={styles.cardHeader}>
-          <Text style={styles.cardIndex}>#{index + 1}</Text>
+          <Text style={[styles.cardIndex, { color: colors.muted, fontSize: fs(12) }]}>#{index + 1}</Text>
           <View style={[styles.badge, { backgroundColor: badgeColor + '28', borderColor: badgeColor }]}>
-            <Text style={[styles.badgeText, { color: badgeColor }]}>{order.status ?? 'Bekliyor'}</Text>
+            <Text style={{ color: badgeColor, fontSize: fs(11), fontWeight: '700' }}>{order.status ?? 'Bekliyor'}</Text>
           </View>
         </View>
 
-        <Text style={styles.cardTitle} numberOfLines={1}>
+        <Text style={{ color: colors.textSecondary, fontSize: fs(15), fontWeight: '700', marginBottom: 6 }} numberOfLines={1}>
           {order.customerName || order.title || 'İsimsiz İş Emri'}
         </Text>
 
         <View style={styles.cardRow}>
-          <Ionicons name="construct-outline" size={13} color="#94A3B8" />
-          <Text style={styles.cardMeta}>{order.type ?? '-'} · {order.category ?? '-'}</Text>
+          <Ionicons name="construct-outline" size={13} color={colors.muted} />
+          <Text style={{ color: colors.muted, fontSize: fs(12), flex: 1 }}>{order.type ?? '-'} · {order.category ?? '-'}</Text>
         </View>
         <View style={styles.cardRow}>
-          <Ionicons name="alert-circle-outline" size={13} color="#94A3B8" />
-          <Text style={styles.cardMeta}>Öncelik: {order.priority ?? 'Orta'}</Text>
+          <Ionicons name="alert-circle-outline" size={13} color={colors.muted} />
+          <Text style={{ color: colors.muted, fontSize: fs(12), flex: 1 }}>Öncelik: {order.priority ?? 'Orta'}</Text>
         </View>
         <View style={styles.cardRow}>
-          <Ionicons name="calendar-outline" size={13} color="#94A3B8" />
-          <Text style={styles.cardMeta}>{order.startDate ?? '-'} → {order.endDate ?? '-'}</Text>
+          <Ionicons name="calendar-outline" size={13} color={colors.muted} />
+          <Text style={{ color: colors.muted, fontSize: fs(12), flex: 1 }}>{order.startDate ?? '-'} → {order.endDate ?? '-'}</Text>
         </View>
         {!!order.address && (
           <View style={styles.cardRow}>
-            <Ionicons name="location-outline" size={13} color="#94A3B8" />
-            <Text style={styles.cardMeta} numberOfLines={1}>{order.address}</Text>
+            <Ionicons name="location-outline" size={13} color={colors.muted} />
+            <Text style={{ color: colors.muted, fontSize: fs(12), flex: 1 }} numberOfLines={1}>{order.address}</Text>
           </View>
         )}
         {!!order.description?.trim() && (
           <View style={styles.cardRow}>
-            <Ionicons name="document-text-outline" size={13} color="#94A3B8" />
-            <Text style={styles.cardMeta} numberOfLines={2}>
-              <Text style={styles.cardMetaLabel}>Genel Açıklama: </Text>
+            <Ionicons name="document-text-outline" size={13} color={colors.muted} />
+            <Text style={{ color: colors.muted, fontSize: fs(12), flex: 1 }} numberOfLines={2}>
+              <Text style={{ fontWeight: '700', color: colors.textSecondary }}>Genel Açıklama: </Text>
               {order.description.trim()}
             </Text>
           </View>
         )}
         {!!order.mobileDescription?.trim() && (
           <View style={styles.cardRow}>
-            <Ionicons name="create-outline" size={13} color="#94A3B8" />
-            <Text style={styles.cardMeta} numberOfLines={2}>
-              <Text style={styles.cardMetaLabel}>Mühendis Açıklaması: </Text>
+            <Ionicons name="create-outline" size={13} color={colors.muted} />
+            <Text style={{ color: colors.muted, fontSize: fs(12), flex: 1 }} numberOfLines={2}>
+              <Text style={{ fontWeight: '700', color: colors.textSecondary }}>Mühendis Açıklaması: </Text>
               {order.mobileDescription.trim()}
             </Text>
           </View>
         )}
 
-        <View style={styles.cardFooter}>
-          <Text style={styles.assignedText}>
-            <Text style={styles.assignedLabel}>Atanan: </Text>
+        <View style={[styles.cardFooter, { borderTopColor: colors.border }]}>
+          <Text style={{ color: colors.muted, fontSize: fs(12) }}>
+            <Text style={{ fontWeight: '700' }}>Atanan: </Text>
             {order.assignedToUserName ?? 'Atanmamış'}
           </Text>
-          <Ionicons name="chevron-forward" size={18} color="#F97316" />
+          <Ionicons name="chevron-forward" size={18} color={colors.orange} />
         </View>
       </View>
     </TouchableOpacity>
   );
 }
 
-// ─── Screen ───────────────────────────────────────────────────────────────────
-
 export default function WorkOrdersScreen() {
   const navigation = useNavigation<NavProp>();
+  const { colors, fs } = useTheme();
   const [orders, setOrders] = useState<WorkOrder[]>([]);
   const [filtered, setFiltered] = useState<WorkOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -168,7 +173,6 @@ export default function WorkOrdersScreen() {
 
   useEffect(() => { fetchOrders(); }, []);
 
-  // Detay ekranından geri dönüldüğünde (İşe Başla, Tamamla, İptal) listeyi yenile
   useFocusEffect(
     useCallback(() => {
       fetchOrders(true);
@@ -215,60 +219,62 @@ export default function WorkOrdersScreen() {
 
   if (loading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#F97316" />
-        <Text style={styles.loadingText}>İş emirleri yükleniyor...</Text>
+      <View style={[styles.centered, { backgroundColor: colors.bg }]}>
+        <ActivityIndicator size="large" color={colors.orange} />
+        <Text style={{ marginTop: 12, color: colors.muted, fontSize: fs(14) }}>İş emirleri yükleniyor...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      {/* ── Search bar ─────────────────────────────── */}
-      <View style={styles.searchBar}>
-        <Ionicons name="search" size={18} color="#94A3B8" style={styles.searchIcon} />
+    <View style={[styles.container, { backgroundColor: colors.bg }]}>
+      <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Ionicons name="search" size={18} color={colors.muted} style={styles.searchIcon} />
         <TextInput
-          style={styles.searchInput}
+          style={{ flex: 1, color: colors.text, fontSize: fs(14), paddingVertical: 10 }}
           placeholder="İş emri, müşteri veya adres ara..."
-          placeholderTextColor="#94A3B8"
+          placeholderTextColor={colors.muted}
           value={search}
           onChangeText={handleSearch}
           returnKeyType="search"
         />
         {search.length > 0 && (
           <TouchableOpacity onPress={() => handleSearch('')}>
-            <Ionicons name="close-circle" size={18} color="#94A3B8" />
+            <Ionicons name="close-circle" size={18} color={colors.muted} />
           </TouchableOpacity>
         )}
       </View>
 
-      {/* ── Status filter chips ─────────────────────── */}
       <View style={styles.filterRow}>
         {statusFilters.map((s) => (
           <TouchableOpacity
             key={s}
             style={[
               styles.chip,
+              { borderColor: colors.border, backgroundColor: colors.surface },
               activeFilter === s && { backgroundColor: statusColor(s), borderColor: statusColor(s) },
             ]}
             onPress={() => handleFilterToggle(s)}
           >
-            <Text style={[styles.chipText, activeFilter === s && styles.chipTextActive]}>
+            <Text
+              style={[
+                { color: colors.muted, fontSize: fs(12), fontWeight: '600' },
+                activeFilter === s && { color: '#fff' },
+              ]}
+            >
               {s}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      {/* ── Counter ────────────────────────────────── */}
       <View style={styles.countRow}>
-        <Text style={styles.countText}>{filtered.length} iş emri</Text>
+        <Text style={{ color: colors.faint, fontSize: fs(12) }}>{filtered.length} iş emri</Text>
         <TouchableOpacity onPress={() => fetchOrders(true)}>
-          <Ionicons name="refresh-outline" size={18} color="#F97316" />
+          <Ionicons name="refresh-outline" size={18} color={colors.orange} />
         </TouchableOpacity>
       </View>
 
-      {/* ── List ───────────────────────────────────── */}
       <FlatList
         data={filtered}
         keyExtractor={(item) => item.id}
@@ -276,6 +282,8 @@ export default function WorkOrdersScreen() {
           <WorkOrderCard
             order={item}
             index={index}
+            colors={colors}
+            fs={fs}
             onPress={() => navigation.navigate('WorkOrderDetail', { workOrder: item })}
           />
         )}
@@ -284,25 +292,25 @@ export default function WorkOrdersScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor="#F97316"
-            colors={['#F97316']}
+            tintColor={colors.orange}
+            colors={[colors.orange]}
           />
         }
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Ionicons name="clipboard-outline" size={48} color="#334155" />
-            <Text style={styles.emptyText}>
+            <Ionicons name="clipboard-outline" size={48} color={colors.border} />
+            <Text style={{ color: colors.faint, fontSize: fs(16), fontWeight: '600', marginTop: 14 }}>
               {search || activeFilter
                 ? 'Arama kriterlerine uygun iş emri yok'
                 : 'Size atanmış iş emri bulunmuyor'}
             </Text>
             {!search && !activeFilter && (
-              <Text style={styles.emptySubText}>
+              <Text style={{ color: colors.border, fontSize: fs(13), marginTop: 6 }}>
                 Yöneticinizden size iş emri atanmasını isteyebilirsiniz.
               </Text>
             )}
             {!!search && (
-              <Text style={styles.emptySubText}>"{search}" araması için sonuç yok</Text>
+              <Text style={{ color: colors.border, fontSize: fs(13), marginTop: 6 }}>"{search}" araması için sonuç yok</Text>
             )}
           </View>
         }
@@ -311,40 +319,27 @@ export default function WorkOrdersScreen() {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0F172A' },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0F172A' },
-  loadingText: { marginTop: 12, color: '#94A3B8', fontSize: 14 },
-
+  container: { flex: 1 },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1E293B',
     marginHorizontal: 14,
     marginTop: 12,
     marginBottom: 8,
     borderRadius: 12,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: '#334155',
   },
   searchIcon: { marginRight: 8 },
-  searchInput: { flex: 1, color: '#fff', fontSize: 14, paddingVertical: 10 },
-
   filterRow: { flexDirection: 'row', paddingHorizontal: 14, gap: 8, marginBottom: 8 },
   chip: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#334155',
-    backgroundColor: '#1E293B',
   },
-  chipText: { color: '#94A3B8', fontSize: 12, fontWeight: '600' },
-  chipTextActive: { color: '#fff' },
-
   countRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -352,39 +347,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginBottom: 6,
   },
-  countText: { color: '#64748B', fontSize: 12 },
-
   listContent: { paddingHorizontal: 14, paddingBottom: 20 },
-
   card: {
     flexDirection: 'row',
-    backgroundColor: '#1E293B',
     borderRadius: 14,
     marginBottom: 10,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#334155',
   },
   cardAccent: { width: 5 },
   cardBody: { flex: 1, padding: 13 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  cardIndex: { color: '#94A3B8', fontSize: 12, fontWeight: '700' },
+  cardIndex: { fontWeight: '700' },
   badge: {
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 8,
     borderWidth: 1,
   },
-  badgeText: { fontSize: 11, fontWeight: '700' },
-  cardTitle: { color: '#E2E8F0', fontSize: 15, fontWeight: '700', marginBottom: 6 },
   cardRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 3, gap: 5 },
-  cardMeta: { color: '#94A3B8', fontSize: 12, flex: 1 },
-  cardMetaLabel: { fontWeight: '700', color: '#CBD5E1' },
-  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#334155' },
-  assignedText: { color: '#94A3B8', fontSize: 12 },
-  assignedLabel: { fontWeight: '700' },
-
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+  },
   empty: { alignItems: 'center', paddingTop: 60 },
-  emptyText: { color: '#475569', fontSize: 16, fontWeight: '600', marginTop: 14 },
-  emptySubText: { color: '#334155', fontSize: 13, marginTop: 6 },
 });

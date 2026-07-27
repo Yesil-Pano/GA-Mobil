@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StatusBar, TouchableOpacity, View, Text, Image, ActivityIndicator, AppState } from 'react-native';
+import { StatusBar, TouchableOpacity, View, Text, Image, ActivityIndicator, AppState, DeviceEventEmitter } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -18,6 +18,8 @@ import ChatScreen from './src/screens/ChatScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import NotificationPanel from './src/components/NotificationPanel';
 import { chatApi } from './src/services/api';
+import { ThemeProvider, useTheme, fs } from './src/theme/ThemeContext';
+import { AUTH_SESSION_EXPIRED } from './src/utils/authSession';
 
 // ─── Arka plan konum görevi — import yalnızca TaskManager'a kaydettirmek için ─
 import './src/tasks/locationTask';
@@ -51,7 +53,8 @@ const LOCATION_INTERVAL_MS = 10 * 60 * 1000; // 10 dakika
 const LOCATION_DISTANCE_M = 100;              // 100 metre hareket
 const LOCATION_BOOTSTRAP_DELAY_MS = 6_000;      // Harita/WebView ile çakışmayı önle
 
-export default function App() {
+function AppShell() {
+  const { colors, isDark } = useTheme();
   const [authState, setAuthState] = useState<'loading' | 'authenticated' | 'unauthenticated'>('loading');
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [chatUnread, setChatUnread] = useState(0);
@@ -88,6 +91,14 @@ export default function App() {
     await SecureStore.deleteItemAsync('remember_me');
     setAuthState('unauthenticated');
   };
+
+  // DEMO_EXPIRED / TENANT_INACTIVE / 401 → API interceptor oturumu düşürür
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(AUTH_SESSION_EXPIRED, () => {
+      void handleLogout();
+    });
+    return () => sub.remove();
+  }, []);
 
   // OS push: giriş sonrası token kaydı (hata uygulamayı düşürmez)
   useEffect(() => {
@@ -242,9 +253,9 @@ export default function App() {
   // ── Splash / loading state ──────────────────────────────────────────────────
   if (authState === 'loading') {
     return (
-      <View style={{ flex: 1, backgroundColor: '#0B132B', justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#F97316" />
-        <Text style={{ color: '#94A3B8', marginTop: 12, fontSize: 14 }}>Yükleniyor...</Text>
+      <View style={{ flex: 1, backgroundColor: colors.bg, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color={colors.orange} />
+        <Text style={{ color: colors.muted, marginTop: 12, fontSize: fs(14) }}>Yükleniyor...</Text>
       </View>
     );
   }
@@ -252,7 +263,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
     <NavigationContainer ref={navigationRef}>
-      <StatusBar barStyle="light-content" backgroundColor="#1A233A" />
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.header} />
 
       {authState === 'unauthenticated' ? (
         <LoginScreen onLoginSuccess={handleLoginSuccess} />
@@ -278,15 +289,16 @@ export default function App() {
               );
             },
             // ── Colours ──────────────────────────────────────────────────────
-            tabBarActiveTintColor:   '#F97316',
-            tabBarInactiveTintColor: '#94A3B8',
+            tabBarActiveTintColor:   colors.orange,
+            tabBarInactiveTintColor: colors.tabInactive,
             tabBarStyle: {
-              backgroundColor: '#1A233A',
+              backgroundColor: colors.header,
               borderTopWidth: 0,
               paddingBottom: 5,
             },
+            tabBarLabelStyle: { fontSize: fs(10) },
             // ── Header ────────────────────────────────────────────────────────
-            headerStyle: { backgroundColor: '#1A233A', elevation: 0, shadowOpacity: 0 },
+            headerStyle: { backgroundColor: colors.header, elevation: 0, shadowOpacity: 0 },
             headerTintColor: '#fff',
             headerTitle: () => (
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -295,7 +307,7 @@ export default function App() {
                   style={{ width: 30, height: 30, marginRight: 10 }}
                   resizeMode="contain"
                 />
-                <Text style={{ color: '#fff', fontSize: 17, fontWeight: 'bold', letterSpacing: 0.8 }}>
+                <Text style={{ color: '#fff', fontSize: fs(17), fontWeight: 'bold', letterSpacing: 0.8 }}>
                   GÖREV ADAMI
                 </Text>
               </View>
@@ -313,7 +325,7 @@ export default function App() {
                       position: 'absolute',
                       top: -3,
                       right: -3,
-                      backgroundColor: '#EF4444',
+                      backgroundColor: colors.danger,
                       width: 9,
                       height: 9,
                       borderRadius: 5,
@@ -373,5 +385,13 @@ export default function App() {
       <NotificationPanel visible={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
     </NavigationContainer>
     </SafeAreaProvider>
+  );
+}
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <AppShell />
+    </ThemeProvider>
   );
 }

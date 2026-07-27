@@ -14,6 +14,7 @@ import * as SecureStore from 'expo-secure-store';
 import { workOrdersApi } from '../services/api';
 import { filterWorkOrdersForUser, getCurrentUserId } from '../utils/workOrders';
 import type { WorkOrder } from '../types';
+import { useTheme } from '../theme/ThemeContext';
 
 // ─── Stat card ────────────────────────────────────────────────────────────────
 interface StatCardProps {
@@ -21,15 +22,19 @@ interface StatCardProps {
   value: number | string;
   icon: keyof typeof Ionicons.glyphMap;
   color: string;
+  surface: string;
+  border: string;
+  text: string;
+  muted: string;
 }
-function StatCard({ label, value, icon, color }: StatCardProps) {
+function StatCard({ label, value, icon, color, surface, border, text, muted }: StatCardProps) {
   return (
-    <View style={[styles.statCard, { borderTopColor: color }]}>
+    <View style={[styles.statCard, { borderTopColor: color, backgroundColor: surface, borderColor: border }]}>
       <View style={[styles.statIcon, { backgroundColor: color + '20' }]}>
         <Ionicons name={icon} size={22} color={color} />
       </View>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
+      <Text style={[styles.statValue, { color: text }]}>{value}</Text>
+      <Text style={[styles.statLabel, { color: muted }]}>{label}</Text>
     </View>
   );
 }
@@ -37,6 +42,7 @@ function StatCard({ label, value, icon, color }: StatCardProps) {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 export default function OverviewScreen() {
   const navigation = useNavigation<any>();
+  const { colors, fs } = useTheme();
   const [orders, setOrders] = useState<WorkOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -81,23 +87,23 @@ export default function OverviewScreen() {
 
   if (loading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#F97316" />
-        <Text style={styles.loadingText}>Genel bakış yükleniyor...</Text>
+      <View style={[styles.centered, { backgroundColor: colors.bg }]}>
+        <ActivityIndicator size="large" color={colors.orange} />
+        <Text style={[styles.loadingText, { color: colors.muted, fontSize: fs(14) }]}>Genel bakış yükleniyor...</Text>
       </View>
     );
   }
 
   return (
     <ScrollView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: colors.bg }]}
       contentContainerStyle={styles.content}
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
           onRefresh={() => { setRefreshing(true); fetchData(true); }}
-          tintColor="#F97316"
-          colors={['#F97316']}
+          tintColor={colors.orange}
+          colors={[colors.orange]}
         />
       }
       showsVerticalScrollIndicator={false}
@@ -105,33 +111,33 @@ export default function OverviewScreen() {
       {/* ── Welcome ─────────────────────────────────── */}
       <View style={styles.welcomeRow}>
         <View>
-          <Text style={styles.welcomeSub}>Merhaba,</Text>
-          <Text style={styles.welcomeName}>{userName} 👋</Text>
+          <Text style={[styles.welcomeSub, { color: colors.faint, fontSize: fs(13) }]}>Merhaba,</Text>
+          <Text style={[styles.welcomeName, { color: colors.text, fontSize: fs(22) }]}>{userName}</Text>
         </View>
-        <View style={styles.dateBadge}>
-          <Ionicons name="calendar-outline" size={14} color="#94A3B8" />
-          <Text style={styles.dateText}>{new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}</Text>
+        <View style={[styles.dateBadge, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Ionicons name="calendar-outline" size={14} color={colors.muted} />
+          <Text style={[styles.dateText, { color: colors.muted, fontSize: fs(11) }]}>{new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}</Text>
         </View>
       </View>
 
       {/* ── Stat grid ────────────────────────────────── */}
       <View style={styles.statGrid}>
-        <StatCard label="Bugünkü İşler"   value={todayOrders.length}  icon="today-outline"          color="#F97316" />
-        <StatCard label="Bekliyor"         value={pending.length}      icon="time-outline"            color="#F59E0B" />
-        <StatCard label="Devam Ediyor"     value={inProgress.length}   icon="reload-circle-outline"   color="#3B82F6" />
-        <StatCard label="Tamamlandı"       value={completed.length}    icon="checkmark-circle-outline" color="#22C55E" />
-        <StatCard label="İptal"            value={cancelled.length}    icon="close-circle-outline"    color="#EF4444" />
-        <StatCard label="Toplam"           value={orders.length}       icon="layers-outline"          color="#A78BFA" />
+        <StatCard label="Bugünkü İşler" value={todayOrders.length} icon="today-outline" color="#F97316" surface={colors.surface} border={colors.border} text={colors.text} muted={colors.faint} />
+        <StatCard label="Bekliyor" value={pending.length} icon="time-outline" color="#F59E0B" surface={colors.surface} border={colors.border} text={colors.text} muted={colors.faint} />
+        <StatCard label="Devam Ediyor" value={inProgress.length} icon="reload-circle-outline" color="#3B82F6" surface={colors.surface} border={colors.border} text={colors.text} muted={colors.faint} />
+        <StatCard label="Tamamlandı" value={completed.length} icon="checkmark-circle-outline" color="#22C55E" surface={colors.surface} border={colors.border} text={colors.text} muted={colors.faint} />
+        <StatCard label="İptal" value={cancelled.length} icon="close-circle-outline" color="#EF4444" surface={colors.surface} border={colors.border} text={colors.text} muted={colors.faint} />
+        <StatCard label="Toplam" value={orders.length} icon="layers-outline" color="#A78BFA" surface={colors.surface} border={colors.border} text={colors.text} muted={colors.faint} />
       </View>
 
       {/* ── Quick action ─────────────────────────────── */}
       <TouchableOpacity
-        style={styles.quickAction}
+        style={[styles.quickAction, { backgroundColor: colors.surface, borderColor: colors.orange + '44' }]}
         onPress={() => navigation.navigate('İş Emirleri')}
       >
         <View style={styles.quickActionLeft}>
           <Ionicons name="clipboard-outline" size={22} color="#F97316" />
-          <Text style={styles.quickActionText}>Tüm İş Emirlerine Git</Text>
+          <Text style={[styles.quickActionText, { color: colors.orange, fontSize: fs(15) }]}>Tüm İş Emirlerine Git</Text>
         </View>
         <Ionicons name="arrow-forward" size={20} color="#F97316" />
       </TouchableOpacity>
@@ -139,22 +145,22 @@ export default function OverviewScreen() {
       {/* ── Recent orders ────────────────────────────── */}
       {recentOrders.length > 0 && (
         <View style={styles.recentSection}>
-          <Text style={styles.sectionTitle}>Son İş Emirleri</Text>
+          <Text style={[styles.sectionTitle, { color: colors.muted, fontSize: fs(11) }]}>Son İş Emirleri</Text>
           {recentOrders.map((order, i) => {
             const color = STATUS_COLORS[order.status] ?? '#64748B';
             return (
               <TouchableOpacity
                 key={order.id}
-                style={styles.recentCard}
+                style={[styles.recentCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
                 onPress={() => navigation.navigate('İş Emirleri', { screen: 'WorkOrderDetail', params: { workOrder: order } })}
                 activeOpacity={0.8}
               >
                 <View style={[styles.recentAccent, { backgroundColor: color }]} />
                 <View style={styles.recentBody}>
-                  <Text style={styles.recentTitle} numberOfLines={1}>
+                  <Text style={[styles.recentTitle, { color: colors.textSecondary, fontSize: fs(14) }]} numberOfLines={1}>
                     {order.customerName || order.title || 'İş Emri'}
                   </Text>
-                  <Text style={styles.recentMeta}>{order.type} · {order.priority}</Text>
+                  <Text style={[styles.recentMeta, { color: colors.faint, fontSize: fs(12) }]}>{order.type} · {order.priority}</Text>
                 </View>
                 <View style={[styles.recentBadge, { backgroundColor: color + '22', borderColor: color }]}>
                   <Text style={[styles.recentBadgeText, { color }]}>{order.status}</Text>
@@ -173,11 +179,11 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0F172A' },
   content: { padding: 16, paddingBottom: 32 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0F172A' },
-  loadingText: { color: '#94A3B8', fontSize: 14, marginTop: 12 },
+  loadingText: { color: '#94A3B8', fontSize: 16, marginTop: 12 },
 
   welcomeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-  welcomeSub: { color: '#64748B', fontSize: 13 },
-  welcomeName: { color: '#F1F5F9', fontSize: 22, fontWeight: '800', marginTop: 2 },
+  welcomeSub: { color: '#64748B', fontSize: 15 },
+  welcomeName: { color: '#F1F5F9', fontSize: 24, fontWeight: '800', marginTop: 2 },
   dateBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -189,7 +195,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#334155',
   },
-  dateText: { color: '#94A3B8', fontSize: 11 },
+  dateText: { color: '#94A3B8', fontSize: 13 },
 
   statGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
   statCard: {
@@ -204,8 +210,8 @@ const styles = StyleSheet.create({
     borderColor: '#334155',
   },
   statIcon: { width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
-  statValue: { color: '#F1F5F9', fontSize: 26, fontWeight: '800' },
-  statLabel: { color: '#64748B', fontSize: 11, fontWeight: '600', marginTop: 4, textAlign: 'center' },
+  statValue: { color: '#F1F5F9', fontSize: 28, fontWeight: '800' },
+  statLabel: { color: '#64748B', fontSize: 13, fontWeight: '600', marginTop: 4, textAlign: 'center' },
 
   quickAction: {
     flexDirection: 'row',
@@ -219,10 +225,10 @@ const styles = StyleSheet.create({
     borderColor: '#F97316' + '44',
   },
   quickActionLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  quickActionText: { color: '#F97316', fontSize: 15, fontWeight: '700' },
+  quickActionText: { color: '#F97316', fontSize: 17, fontWeight: '700' },
 
   recentSection: { marginBottom: 8 },
-  sectionTitle: { color: '#94A3B8', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12 },
+  sectionTitle: { color: '#94A3B8', fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12 },
   recentCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -235,8 +241,8 @@ const styles = StyleSheet.create({
   },
   recentAccent: { width: 4, alignSelf: 'stretch' },
   recentBody: { flex: 1, padding: 12 },
-  recentTitle: { color: '#E2E8F0', fontSize: 14, fontWeight: '600' },
-  recentMeta: { color: '#64748B', fontSize: 12, marginTop: 2 },
+  recentTitle: { color: '#E2E8F0', fontSize: 16, fontWeight: '600' },
+  recentMeta: { color: '#64748B', fontSize: 14, marginTop: 2 },
   recentBadge: {
     marginRight: 12,
     paddingHorizontal: 8,
@@ -244,5 +250,5 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
   },
-  recentBadgeText: { fontSize: 11, fontWeight: '700' },
+  recentBadgeText: { fontSize: 13, fontWeight: '700' },
 });

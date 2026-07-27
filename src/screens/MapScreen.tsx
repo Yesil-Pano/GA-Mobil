@@ -19,6 +19,7 @@ import { workOrdersApi } from '../services/api';
 import { extractApiErrorMessage, filterWorkOrdersForUser, getCurrentUserId, ensureAlertMessage } from '../utils/workOrders';
 import { resolveUserLocation } from '../utils/location';
 import type { WorkOrder, RootTabParamList } from '../types';
+import { useTheme } from '../theme/ThemeContext';
 
 const DEFAULT_REGION = {
   latitude: 39.92077,
@@ -50,6 +51,7 @@ function buildMarkerDescription(order: WorkOrder): string {
 }
 
 export default function MapScreen() {
+  const { colors, fs } = useTheme();
   const route = useRoute<RouteProp<RootTabParamList, 'Harita'>>();
   const mapRef = useRef<OsmMapViewRef>(null);
   const markerIndexRef = useRef<Map<string, { lat: number; lng: number; label: string }>>(new Map());
@@ -181,9 +183,9 @@ export default function MapScreen() {
   return (
     <View style={styles.container}>
       {loading && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator color="#F97316" size="large" />
-          <Text style={styles.loadingText}>Yükleniyor...</Text>
+        <View style={[styles.loadingOverlay, { backgroundColor: colors.bg + 'CC' }]}>
+          <ActivityIndicator color={colors.orange} size="large" />
+          <Text style={[styles.loadingText, { color: colors.muted, fontSize: fs(14) }]}>Yükleniyor...</Text>
         </View>
       )}
 
@@ -196,15 +198,17 @@ export default function MapScreen() {
         onMapReady={() => setMapReady(true)}
       />
 
-      <View style={styles.legend}>
+      <View style={[styles.legend, { backgroundColor: colors.surface + 'EE', borderColor: colors.border }]}>
         <View style={styles.legendRow}>
-          <View style={styles.legendIcon}>
-            <Ionicons name="flash" size={12} color="#F97316" />
+          <View style={[styles.legendIcon, { backgroundColor: colors.header, borderColor: colors.orange }]}>
+            <Ionicons name="flash" size={12} color={colors.orange} />
           </View>
-          <Text style={styles.legendText}>İş Emri İstasyonları ({mappedOrders.length})</Text>
+          <Text style={[styles.legendText, { color: colors.textSecondary, fontSize: fs(12) }]}>
+            İş Emri İstasyonları ({mappedOrders.length})
+          </Text>
         </View>
         {lastRefreshed && (
-          <Text style={styles.refreshText}>
+          <Text style={[styles.refreshText, { color: colors.faint, fontSize: fs(10) }]}>
             {lastRefreshed.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
           </Text>
         )}

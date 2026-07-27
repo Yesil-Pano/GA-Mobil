@@ -57,6 +57,9 @@ import {
 } from '../constants/photos';
 
 import PhotoSection, { usePhotoBuckets } from '../components/PhotoSection';
+import { isTeslaCompany } from '../utils/partners';
+import { useTheme, fs } from '../theme/ThemeContext';
+import * as SecureStore from 'expo-secure-store';
 
 import type { PhotoItem, SavedPhotoItem } from '../types';
 
@@ -133,10 +136,61 @@ export default function WorkOrderDetailScreen({ route }: Props) {
   const [completedAt, setCompletedAt] = useState<string | null>(order.completedAt ?? null);
 
   const [cancelledAt, setCancelledAt] = useState<string | null>(order.cancelledAt ?? null);
+  const { colors } = useTheme();
+  const [displayLang, setDisplayLang] = useState<'en' | 'tr'>('tr');
+  const [isTesla, setIsTesla] = useState(false);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [titleEn, setTitleEn] = useState(order.titleEn ?? null);
+  const [descriptionEn, setDescriptionEn] = useState(order.descriptionEn ?? null);
+  const [mobileDescriptionEn, setMobileDescriptionEn] = useState(order.mobileDescriptionEn ?? null);
+  const [fieldNoteEn, setFieldNoteEn] = useState(order.fieldNoteEn ?? null);
 
   const isFinished = currentStatus === 'Tamamlandı' || currentStatus === 'İptal';
 
   const buckets = usePhotoBuckets(photos, savedPhotos);
+
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const company = await SecureStore.getItemAsync('user_company');
+      const tesla = isTeslaCompany(company) || isTeslaCompany(order.customerName);
+      if (!cancelled) {
+        setIsTesla(tesla);
+        setDisplayLang(tesla ? 'en' : 'tr');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [order.id, order.customerName]);
+
+  const ensureTranslation = async () => {
+    if (titleEn?.trim()) return;
+    setIsTranslating(true);
+    try {
+      const { data } = await workOrdersApi.translate(order.id);
+      setTitleEn(data.titleEn ?? null);
+      setDescriptionEn(data.descriptionEn ?? null);
+      setMobileDescriptionEn(data.mobileDescriptionEn ?? null);
+      setFieldNoteEn(data.fieldNoteEn ?? null);
+    } catch (e) {
+      Alert.alert('Çeviri', 'İngilizce çeviri alınamadı.');
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
+  const showEn = isTesla && displayLang === 'en';
+  const viewTitle = showEn && titleEn?.trim() ? titleEn : (order.title ?? '');
+  const viewDescription = showEn && descriptionEn?.trim() ? descriptionEn : (order.description ?? '');
+  const viewMobileDescription = showEn && mobileDescriptionEn?.trim() ? mobileDescriptionEn : (order.mobileDescription ?? '');
+  const viewFieldNote = showEn && fieldNoteEn?.trim() ? fieldNoteEn : (sahaNote.trim() || 'Saha notu girilmemiş.');
+
+
+  useEffect(() => {
+    if (!isTesla || displayLang !== 'en') return;
+    void ensureTranslation();
+  }, [isTesla, displayLang]);
+
 
 
 
@@ -532,7 +586,7 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
   return (
 
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.bg }]}>
 
       <View style={styles.header}>
 
@@ -546,7 +600,7 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
           <Text style={styles.headerTitle} numberOfLines={1}>
 
-            {order.customerName || order.title || 'İş Emri Detayı'}
+            {order.customerName || viewTitle || order.title || 'İş Emri Detayı'}
 
           </Text>
 
@@ -648,31 +702,52 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
 
 
-        {(order.description || order.mobileDescription) && (
+        {isTesla && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10, paddingHorizontal: 4 }}>
+            <TouchableOpacity
+              onPress={async () => {
+                setDisplayLang('en');
+                await ensureTranslation();
+              }}
+              style={{ padding: 6, borderRadius: 8, borderWidth: displayLang === 'en' ? 2 : 0, borderColor: '#3B82F6' }}
+            >
+              <Text style={{ fontSize: fs(20) }}>🇬🇧</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setDisplayLang('tr')}
+              style={{ padding: 6, borderRadius: 8, borderWidth: displayLang === 'tr' ? 2 : 0, borderColor: '#EF4444' }}
+            >
+              <Text style={{ fontSize: fs(20) }}>🇹🇷</Text>
+            </TouchableOpacity>
+            {isTranslating && <Text style={{ color: '#94A3B8', fontSize: fs(12) }}>Çevriliyor…</Text>}
+          </View>
+        )}
+
+        {(viewDescription || viewMobileDescription || order.description || order.mobileDescription) && (
 
           <View style={styles.section}>
 
             <Text style={styles.sectionTitle}>Açıklama</Text>
 
-            {!!order.description && (
+            {!!(showEn ? viewDescription : order.description) && (
 
               <View style={styles.descBox}>
 
                 <Text style={styles.descLabel}>Genel Açıklama</Text>
 
-                <Text style={styles.descText}>{order.description}</Text>
+                <Text style={styles.descText}>{showEn ? viewDescription : order.description}</Text>
 
               </View>
 
             )}
 
-            {!!order.mobileDescription && (
+            {!!(showEn ? viewMobileDescription : order.mobileDescription) && (
 
               <View style={[styles.descBox, { marginTop: 10 }]}>
 
                 <Text style={styles.descLabel}>Mühendis Açıklaması</Text>
 
-                <Text style={styles.descText}>{order.mobileDescription}</Text>
+                <Text style={styles.descText}>{showEn ? viewMobileDescription : order.mobileDescription}</Text>
 
               </View>
 
@@ -710,7 +785,7 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
             <View style={styles.descBox}>
 
-              <Text style={styles.descText}>{sahaNote.trim() || 'Saha notu girilmemiş.'}</Text>
+              <Text style={styles.descText}>{isFinished && showEn ? viewFieldNote : (sahaNote.trim() || 'Saha notu girilmemiş.')}</Text>
 
               {!!order.fieldNoteAddedAt && <Text style={styles.noteMeta}>{order.fieldNoteAddedAt}</Text>}
 
@@ -972,7 +1047,7 @@ const styles = StyleSheet.create({
 
   headerCenter: { flex: 1, gap: 6 },
 
-  headerTitle: { color: '#F1F5F9', fontSize: 16, fontWeight: '700' },
+  headerTitle: { color: '#F1F5F9', fontSize: 18, fontWeight: '700' },
 
   statusBadge: {
 
@@ -984,7 +1059,7 @@ const styles = StyleSheet.create({
 
   },
 
-  statusText: { fontSize: 11, fontWeight: '700' },
+  statusText: { fontSize: 13, fontWeight: '700' },
 
   content: { padding: 16, paddingBottom: 30 },
 
@@ -1000,7 +1075,7 @@ const styles = StyleSheet.create({
 
   sectionTitle: {
 
-    color: '#94A3B8', fontSize: 11, fontWeight: '700',
+    color: '#94A3B8', fontSize: 13, fontWeight: '700',
 
     textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12,
 
@@ -1012,7 +1087,7 @@ const styles = StyleSheet.create({
 
   pill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, gap: 5 },
 
-  pillText: { fontSize: 12, fontWeight: '600' },
+  pillText: { fontSize: 14, fontWeight: '600' },
 
   detailRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
 
@@ -1020,9 +1095,9 @@ const styles = StyleSheet.create({
 
   detailTexts: { flex: 1 },
 
-  detailLabel: { color: '#64748B', fontSize: 11, fontWeight: '600', marginBottom: 2 },
+  detailLabel: { color: '#64748B', fontSize: 13, fontWeight: '600', marginBottom: 2 },
 
-  detailValue: { color: '#E2E8F0', fontSize: 14, fontWeight: '500' },
+  detailValue: { color: '#E2E8F0', fontSize: 16, fontWeight: '500' },
 
 
   mapBtn: {
@@ -1037,25 +1112,25 @@ const styles = StyleSheet.create({
 
   },
 
-  mapBtnText: { color: '#38BDF8', fontSize: 14, fontWeight: '700' },
+  mapBtnText: { color: '#38BDF8', fontSize: 16, fontWeight: '700' },
 
   descBox: { backgroundColor: '#0F172A', borderRadius: 10, padding: 12 },
 
-  descLabel: { color: '#64748B', fontSize: 11, fontWeight: '700', marginBottom: 6 },
+  descLabel: { color: '#64748B', fontSize: 13, fontWeight: '700', marginBottom: 6 },
 
-  descText: { color: '#CBD5E1', fontSize: 14, lineHeight: 20 },
+  descText: { color: '#CBD5E1', fontSize: 16, lineHeight: 20 },
 
   noteInput: {
 
     backgroundColor: '#0F172A', borderRadius: 10, padding: 12,
 
-    color: '#E2E8F0', fontSize: 14, lineHeight: 20,
+    color: '#E2E8F0', fontSize: 16, lineHeight: 20,
 
     minHeight: 100, borderWidth: 1, borderColor: '#334155',
 
   },
 
-  noteMeta: { color: '#64748B', fontSize: 11, marginTop: 8 },
+  noteMeta: { color: '#64748B', fontSize: 13, marginTop: 8 },
 
   actionArea: {
 
@@ -1075,7 +1150,7 @@ const styles = StyleSheet.create({
 
   },
 
-  progressText: { color: '#F97316', fontSize: 13, fontWeight: '600' },
+  progressText: { color: '#F97316', fontSize: 15, fontWeight: '600' },
 
   startBtn: {
 
@@ -1087,7 +1162,7 @@ const styles = StyleSheet.create({
 
   },
 
-  startBtnText: { color: '#fff', fontSize: 20, fontWeight: '800', letterSpacing: 0.5 },
+  startBtnText: { color: '#fff', fontSize: 22, fontWeight: '800', letterSpacing: 0.5 },
 
   actionBar: { flexDirection: 'row', gap: 12 },
 
@@ -1103,7 +1178,7 @@ const styles = StyleSheet.create({
 
   completeBtn: { backgroundColor: '#22C55E' },
 
-  actionText: { fontSize: 16, fontWeight: '700' },
+  actionText: { fontSize: 18, fontWeight: '700' },
 
 });
 
