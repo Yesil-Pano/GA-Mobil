@@ -162,7 +162,7 @@ export interface SavedPhotoItem {
 
 export type WorkOrdersStackParamList = {
   WorkOrdersList: undefined;
-  WorkOrderDetail: { workOrder: WorkOrder };
+  WorkOrderDetail: { workOrder?: WorkOrder; workOrderId?: string };
 };
 
 export type RootTabParamList = {

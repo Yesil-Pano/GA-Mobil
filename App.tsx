@@ -25,11 +25,14 @@ import { AUTH_SESSION_EXPIRED } from './src/utils/authSession';
 import './src/tasks/locationTask';
 import { LOCATION_TASK_NAME, pushLocationToBackend } from './src/tasks/locationTask';
 import { resolveUserLocation } from './src/utils/location';
+import * as Notifications from 'expo-notifications';
 import {
   registerForPushNotificationsAsync,
   unregisterPushToken,
   addNotificationResponseListener,
 } from './src/utils/pushNotifications';
+import { workOrdersApi } from './src/services/api';
+import type { WorkOrder } from './src/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 import type { WorkOrdersStackParamList, RootTabParamList } from './src/types';
@@ -115,17 +118,60 @@ function AppShell() {
     return () => { cancelled = true; };
   }, [authState]);
 
-  // Bildirime tıklanınca ilgili ekrana git
+  // Bildirime tıklanınca ilgili ekrana git (soğuk başlangıç dahil)
   useEffect(() => {
     if (authState !== 'authenticated') return;
-    const sub = addNotificationResponseListener((data) => {
+
+    const navigateFromPush = async (data: Record<string, unknown>) => {
       const type = String(data.type ?? '');
+      const workOrderId = data.workOrderId ? String(data.workOrderId) : null;
+
       if (type === 'ChatMessage') {
         navigationRef.current?.navigate?.('Sohbet');
-      } else if (type === 'WorkOrderAssigned') {
+        return;
+      }
+
+      if ((type === 'WorkOrderAssigned' || type === 'WorkOrderCreated') && workOrderId) {
+        try {
+          const { data: orders } = await workOrdersApi.getAll();
+          const found = orders.find((o: WorkOrder) => o.id === workOrderId);
+          if (found) {
+            navigationRef.current?.navigate?.('İş Emirleri', {
+              screen: 'WorkOrderDetail',
+              params: { workOrder: found },
+            });
+            return;
+          }
+        } catch (err) {
+          console.warn('[App] Push deep link WO yüklenemedi:', err);
+        }
+        navigationRef.current?.navigate?.('İş Emirleri', {
+          screen: 'WorkOrderDetail',
+          params: { workOrderId },
+        });
+        return;
+      }
+
+      if (type === 'WorkOrderAssigned' || type === 'WorkOrderCreated') {
         navigationRef.current?.navigate?.('İş Emirleri');
       }
+    };
+
+    const sub = addNotificationResponseListener((data) => {
+      void navigateFromPush(data);
     });
+
+    (async () => {
+      try {
+        const last = await Notifications.getLastNotificationResponseAsync();
+        if (last?.notification?.request?.content?.data) {
+          await navigateFromPush(last.notification.request.content.data as Record<string, unknown>);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+
     return () => sub.remove();
   }, [authState]);
 

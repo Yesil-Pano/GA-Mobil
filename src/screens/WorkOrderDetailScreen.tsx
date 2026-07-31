@@ -113,17 +113,38 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
   const navigation = useNavigation<NativeStackNavigationProp<WorkOrdersStackParamList>>();
 
-  const { workOrder: order } = route.params;
+  const initialOrder = route.params.workOrder;
+  const pendingId = route.params.workOrderId;
 
+  const [order, setOrder] = useState(initialOrder);
+  const [loadingOrder, setLoadingOrder] = useState(!initialOrder && !!pendingId);
 
+  useEffect(() => {
+    if (initialOrder || !pendingId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await workOrdersApi.getAll();
+        const found = data.find((o) => o.id === pendingId);
+        if (!cancelled && found) setOrder(found);
+      } catch (err) {
+        console.warn('[WorkOrderDetail] Yüklenemedi:', err);
+      } finally {
+        if (!cancelled) setLoadingOrder(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [initialOrder, pendingId]);
 
-  const [currentStatus, setCurrentStatus] = useState(order.status ?? 'Bekliyor');
+  const [currentStatus, setCurrentStatus] = useState(
+    initialOrder?.status === 'Bekliyor' || !initialOrder?.status ? 'Devam Ediyor' : (initialOrder?.status ?? 'Devam Ediyor'),
+  );
 
   const [actionLoading, setActionLoading] = useState<'start' | 'complete' | 'cancel' | null>(null);
 
   const [uploadProgress, setUploadProgress] = useState('');
 
-  const [sahaNote, setSahaNote] = useState(order.fieldNote ?? '');
+  const [sahaNote, setSahaNote] = useState(initialOrder?.fieldNote ?? '');
 
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
 
@@ -131,19 +152,32 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
   const [loadingAttachments, setLoadingAttachments] = useState(true);
 
-  const [startedAt, setStartedAt] = useState<string | null>(order.startedAt ?? null);
+  const [startedAt, setStartedAt] = useState<string | null>(initialOrder?.startedAt ?? null);
 
-  const [completedAt, setCompletedAt] = useState<string | null>(order.completedAt ?? null);
+  const [completedAt, setCompletedAt] = useState<string | null>(initialOrder?.completedAt ?? null);
 
-  const [cancelledAt, setCancelledAt] = useState<string | null>(order.cancelledAt ?? null);
+  const [cancelledAt, setCancelledAt] = useState<string | null>(initialOrder?.cancelledAt ?? null);
   const { colors } = useTheme();
   const [displayLang, setDisplayLang] = useState<'en' | 'tr'>('tr');
   const [isTesla, setIsTesla] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
-  const [titleEn, setTitleEn] = useState(order.titleEn ?? null);
-  const [descriptionEn, setDescriptionEn] = useState(order.descriptionEn ?? null);
-  const [mobileDescriptionEn, setMobileDescriptionEn] = useState(order.mobileDescriptionEn ?? null);
-  const [fieldNoteEn, setFieldNoteEn] = useState(order.fieldNoteEn ?? null);
+  const [titleEn, setTitleEn] = useState(initialOrder?.titleEn ?? null);
+  const [descriptionEn, setDescriptionEn] = useState(initialOrder?.descriptionEn ?? null);
+  const [mobileDescriptionEn, setMobileDescriptionEn] = useState(initialOrder?.mobileDescriptionEn ?? null);
+  const [fieldNoteEn, setFieldNoteEn] = useState(initialOrder?.fieldNoteEn ?? null);
+
+  useEffect(() => {
+    if (!order) return;
+    setCurrentStatus(order.status === 'Bekliyor' || !order.status ? 'Devam Ediyor' : order.status);
+    setSahaNote(order.fieldNote ?? '');
+    setStartedAt(order.startedAt ?? null);
+    setCompletedAt(order.completedAt ?? null);
+    setCancelledAt(order.cancelledAt ?? null);
+    setTitleEn(order.titleEn ?? null);
+    setDescriptionEn(order.descriptionEn ?? null);
+    setMobileDescriptionEn(order.mobileDescriptionEn ?? null);
+    setFieldNoteEn(order.fieldNoteEn ?? null);
+  }, [order?.id]);
 
   const isFinished = currentStatus === 'Tamamlandı' || currentStatus === 'İptal';
 
@@ -151,6 +185,7 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
 
   useEffect(() => {
+    if (!order) return;
     let cancelled = false;
     (async () => {
       const company = await SecureStore.getItemAsync('user_company');
@@ -161,10 +196,10 @@ export default function WorkOrderDetailScreen({ route }: Props) {
       }
     })();
     return () => { cancelled = true; };
-  }, [order.id, order.customerName]);
+  }, [order?.id, order?.customerName]);
 
   const ensureTranslation = async () => {
-    if (titleEn?.trim()) return;
+    if (!order || titleEn?.trim()) return;
     setIsTranslating(true);
     try {
       const { data } = await workOrdersApi.translate(order.id);
@@ -180,9 +215,9 @@ export default function WorkOrderDetailScreen({ route }: Props) {
   };
 
   const showEn = isTesla && displayLang === 'en';
-  const viewTitle = showEn && titleEn?.trim() ? titleEn : (order.title ?? '');
-  const viewDescription = showEn && descriptionEn?.trim() ? descriptionEn : (order.description ?? '');
-  const viewMobileDescription = showEn && mobileDescriptionEn?.trim() ? mobileDescriptionEn : (order.mobileDescription ?? '');
+  const viewTitle = showEn && titleEn?.trim() ? titleEn : (order?.title ?? '');
+  const viewDescription = showEn && descriptionEn?.trim() ? descriptionEn : (order?.description ?? '');
+  const viewMobileDescription = showEn && mobileDescriptionEn?.trim() ? mobileDescriptionEn : (order?.mobileDescription ?? '');
   const viewFieldNote = showEn && fieldNoteEn?.trim() ? fieldNoteEn : (sahaNote.trim() || 'Saha notu girilmemiş.');
 
 
@@ -207,23 +242,18 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
 
   useEffect(() => {
-
+    if (!order) return;
     setSahaNote(order.fieldNote ?? '');
-
     setStartedAt(order.startedAt ?? null);
-
     setCompletedAt(order.completedAt ?? null);
-
     setCancelledAt(order.cancelledAt ?? null);
-
     loadSavedAttachments();
-
-  }, [order.id, order.fieldNote, order.startedAt, order.completedAt, order.cancelledAt]);
+  }, [order?.id, order?.fieldNote, order?.startedAt, order?.completedAt, order?.cancelledAt]);
 
 
 
   const loadSavedAttachments = async () => {
-
+    if (!order) return;
     setLoadingAttachments(true);
 
     try {
@@ -584,6 +614,24 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
 
 
+  if (loadingOrder) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color="#F97316" />
+      </View>
+    );
+  }
+
+  if (!order) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <Text style={{ color: '#64748B', textAlign: 'center' }}>İş emri bulunamadı.</Text>
+      </View>
+    );
+  }
+
+
+
   return (
 
     <View style={[styles.container, { backgroundColor: colors.bg }]}>
@@ -902,32 +950,6 @@ export default function WorkOrderDetailScreen({ route }: Props) {
               <Text style={styles.progressText}>{uploadProgress}</Text>
 
             </View>
-
-          )}
-
-
-
-          {currentStatus === 'Bekliyor' && (
-
-            <TouchableOpacity style={styles.startBtn} onPress={handleStart} disabled={actionLoading !== null}>
-
-              {actionLoading === 'start' ? (
-
-                <ActivityIndicator size="small" color="#fff" />
-
-              ) : (
-
-                <>
-
-                  <Ionicons name="play-circle" size={28} color="#fff" />
-
-                  <Text style={styles.startBtnText}>İşe Başla</Text>
-
-                </>
-
-              )}
-
-            </TouchableOpacity>
 
           )}
 
