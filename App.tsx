@@ -43,6 +43,7 @@ import {
   tryRefreshSession,
 } from './src/utils/sessionTokens';
 import { filterWorkOrdersForUser, getCurrentUserId } from './src/utils/workOrders';
+import { filterMobileVisibleWorkOrders } from './src/utils/workOrderSchedule';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 import type { WorkOrdersStackParamList, RootTabParamList } from './src/types';
@@ -108,8 +109,10 @@ function AppShell() {
     const type = String(data.type ?? '');
     const workOrderId = data.workOrderId ? String(data.workOrderId) : null;
 
-    if (type === 'ChatMessage') {
-      navigationRef.current?.navigate?.('Sohbet');
+    if (type === 'ChatMessage' || type === 'DirectChatMessage') {
+      const conversationId = data.conversationId ? String(data.conversationId) : undefined;
+      const senderUserId = data.senderUserId ? String(data.senderUserId) : undefined;
+      navigationRef.current?.navigate?.('Sohbet', { conversationId, senderUserId });
       return;
     }
 
@@ -125,8 +128,19 @@ function AppShell() {
           workOrdersApi.getAll(),
           getCurrentUserId(),
         ]);
-        const mine = filterWorkOrdersForUser(orders, userId);
-        const found = mine.find((o: WorkOrder) => o.id === workOrderId);
+        const allMine = filterWorkOrdersForUser(orders, userId);
+        let found = allMine.find((o: WorkOrder) => o.id === workOrderId);
+        if (found?.isPeriodic && !found.parentWorkOrderId) {
+          const activeChild = filterMobileVisibleWorkOrders(orders, userId).find(
+            (o) => o.parentWorkOrderId === found!.id,
+          );
+          if (activeChild) found = activeChild;
+        }
+        if (!found) {
+          found = filterMobileVisibleWorkOrders(orders, userId).find(
+            (o: WorkOrder) => o.id === workOrderId,
+          );
+        }
         if (found) {
           navigationRef.current?.navigate?.('İş Emirleri', {
             screen: 'WorkOrderDetail',

@@ -9,8 +9,6 @@ import type {
   UserProfile,
   TeamMember,
   TeamMemberLocation,
-  ChatMessageDto,
-  MyConversationResponse,
 } from '../types';
 import { emitAuthSessionExpired } from '../utils/authSession';
 import {
@@ -219,23 +217,53 @@ export const photosApi = {
   remove: (id: string) => api.delete(`/photos/${id}`),
 };
 
-// ─── Chat API (ofis ↔ saha) ───────────────────────────────────────────────────
+// ─── Direct Chat API (1:1 WhatsApp benzeri) ───────────────────────────────────
+
+export interface DirectContactDto {
+  conversationId: string | null;
+  userId: string;
+  fullName: string;
+  isGaManagement: boolean;
+  badgeLabel: string | null;
+  companyName: string | null;
+  lastMessageAt: string | null;
+  lastMessagePreview: string | null;
+  unreadCount: number;
+}
+
+export interface DirectMessageDto {
+  id: string;
+  conversationId: string;
+  senderUserId: string;
+  senderName: string;
+  isMine: boolean;
+  body: string;
+  sentAt: string;
+  clientMessageId?: string | null;
+  isReadByOther: boolean;
+}
 
 export const chatApi = {
-  /** GET /chat/conversation — kendi Operasyon konuşması */
-  getMyConversation: (take = 50) =>
-    api.get<MyConversationResponse>('/chat/conversation', { params: { take } }),
+  listContacts: () => api.get<DirectContactDto[]>('/office-chat/contacts'),
 
-  /** POST /chat/messages — kendi konuşmasına gönder */
-  sendMessage: (body: string, clientMessageId?: string) =>
-    api.post<ChatMessageDto>('/chat/messages', { body, clientMessageId }),
+  startConversation: (targetUserId: string) =>
+    api.post<DirectContactDto>('/office-chat/conversations/start', { targetUserId }),
 
-  /** POST /chat/conversations/{id}/read (nginx PUT engeli için) */
+  getMessages: (conversationId: string, take = 100) =>
+    api.get<DirectMessageDto[]>(`/office-chat/conversations/${conversationId}/messages`, {
+      params: { take },
+    }),
+
+  sendMessage: (conversationId: string, body: string, clientMessageId?: string) =>
+    api.post<DirectMessageDto>(`/office-chat/conversations/${conversationId}/messages`, {
+      body,
+      clientMessageId,
+    }),
+
   markRead: (conversationId: string) =>
-    api.post<{ message: string }>(`/chat/conversations/${conversationId}/read`),
+    api.post<{ message: string }>(`/office-chat/conversations/${conversationId}/read`),
 
-  /** GET /chat/unread-count */
-  unreadCount: () => api.get<{ count: number }>('/chat/unread-count'),
+  unreadCount: () => api.get<{ count: number }>('/office-chat/unread-count'),
 };
 
 /** SignalR hub tabanı — api baseURL'den /api kaldırılır */

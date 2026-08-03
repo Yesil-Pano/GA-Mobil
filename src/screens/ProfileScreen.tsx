@@ -12,6 +12,7 @@ import {
   Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -269,7 +270,9 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
         <View style={[styles.settingRow, { borderBottomWidth: 0 }]}>
           <Ionicons name="information-circle-outline" size={18} color={colors.muted} style={styles.settingIcon} />
           <Text style={[styles.settingText, { color: colors.textSecondary, fontSize: fs(14) }]}>Versiyon</Text>
-          <Text style={{ color: colors.faint, fontSize: fs(13) }}>1.0.0</Text>
+          <Text style={{ color: colors.faint, fontSize: fs(13) }}>
+            {Constants.expoConfig?.version ?? Constants.nativeAppVersion ?? '—'}
+          </Text>
         </View>
       </View>
 

@@ -14,14 +14,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { workOrdersApi } from '../services/api';
-import { extractApiErrorMessage, filterWorkOrdersForUser, getCurrentUserId, ensureAlertMessage } from '../utils/workOrders';
+import { extractApiErrorMessage, getCurrentUserId, ensureAlertMessage } from '../utils/workOrders';
+import { filterMobileVisibleWorkOrders, displayWorkOrderStatus, formatApiDateTime } from '../utils/workOrderSchedule';
 import type { WorkOrder, WorkOrdersStackParamList } from '../types';
 import { useTheme } from '../theme/ThemeContext';
 import type { AppColors } from '../theme/ThemeContext';
 
 type NavProp = NativeStackNavigationProp<WorkOrdersStackParamList, 'WorkOrdersList'>;
-
-import { displayWorkOrderStatus } from '../utils/workOrderSchedule';
 
 const STATUS_ORDER: Record<string, number> = {
   'Bekliyor': 0,
@@ -89,7 +88,7 @@ function WorkOrderCard({ order, index, onPress, colors, fs }: CardProps) {
         </View>
         <View style={styles.cardRow}>
           <Ionicons name="calendar-outline" size={13} color={colors.muted} />
-          <Text style={{ color: colors.muted, fontSize: fs(12), flex: 1 }}>{order.startDate ?? '-'} → {order.endDate ?? '-'}</Text>
+          <Text style={{ color: colors.muted, fontSize: fs(12), flex: 1 }}>{formatApiDateTime(order.startDate)} → {formatApiDateTime(order.endDate)}</Text>
         </View>
         {!!order.address && (
           <View style={styles.cardRow}>
@@ -154,7 +153,7 @@ export default function WorkOrdersScreen() {
         setFiltered([]);
         return;
       }
-      const mine = filterWorkOrdersForUser(data, userId);
+      const mine = filterMobileVisibleWorkOrders(data, userId);
       setOrders(mine);
       applyFilter(mine, search, activeFilter);
       hasLoadedOnceRef.current = true;

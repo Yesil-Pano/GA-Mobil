@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
-import { formatWorkOrderDate } from '../utils/workOrderSchedule';
+import { formatWorkOrderDate, formatWorkOrderDateOnly } from '../utils/workOrderSchedule';
 
 interface Props {
   label: string;
@@ -46,7 +46,7 @@ export default function DateTimeField({ label, value, onChange, disabled = false
         >
           <Ionicons name="calendar-outline" size={16} color={disabled ? '#64748B' : '#38BDF8'} />
           <Text style={[styles.btnText, disabled && styles.btnTextDisabled]}>
-            {formatWorkOrderDate(value).slice(0, 10)}
+            {formatWorkOrderDateOnly(value)}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity

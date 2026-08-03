@@ -28,17 +28,32 @@ import * as ImagePicker from 'expo-image-picker';
 
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import type { WorkOrdersStackParamList, RootTabParamList } from '../types';
+import type { WorkOrdersStackParamList, RootTabParamList, WorkOrder } from '../types';
 
 import { workOrdersApi, photosApi, getPhotoImageSource } from '../services/api';
 
 import { extractApiErrorMessage, ensureAlertMessage, filterWorkOrdersForUser, getCurrentUserId } from '../utils/workOrders';
+import { filterMobileVisibleWorkOrders } from '../utils/workOrderSchedule';
+
+function resolveWorkOrderForDetail(orders: WorkOrder[], userId: string | null, targetId: string): WorkOrder | undefined {
+  const allMine = filterWorkOrdersForUser(orders, userId);
+  let found = allMine.find((o) => o.id === targetId);
+  if (found?.isPeriodic && !found.parentWorkOrderId) {
+    const activeChild = filterMobileVisibleWorkOrders(orders, userId).find(
+      (o) => o.parentWorkOrderId === found!.id,
+    );
+    if (activeChild) found = activeChild;
+  }
+  return found ?? filterMobileVisibleWorkOrders(orders, userId).find((o) => o.id === targetId);
+}
 
 import {
   formatApiDateTime,
   durationMinutes,
   displayWorkOrderStatus,
   isWorkOrderFinished,
+  canShowStartWorkOrder,
+  shouldShowInProgressActions,
 } from '../utils/workOrderSchedule';
 
 import {
@@ -127,7 +142,7 @@ export default function WorkOrderDetailScreen({ route }: Props) {
           workOrdersApi.getAll(),
           getCurrentUserId(),
         ]);
-        const found = filterWorkOrdersForUser(data, userId).find((o) => o.id === pendingId);
+        const found = resolveWorkOrderForDetail(data, userId, pendingId);
         if (!cancelled && found) setOrder(found);
       } catch (err) {
         console.warn('[WorkOrderDetail] Yüklenemedi:', err);
@@ -182,6 +197,8 @@ export default function WorkOrderDetailScreen({ route }: Props) {
   }, [order?.id]);
 
   const isFinished = isWorkOrderFinished(currentStatus);
+  const showStartButton = order ? canShowStartWorkOrder({ status: currentStatus, startedAt }) : false;
+  const showProgressActions = order ? shouldShowInProgressActions({ status: currentStatus, startedAt }) : false;
 
   const buckets = usePhotoBuckets(photos, savedPhotos);
 
@@ -957,7 +974,7 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
 
 
-          {currentStatus === 'Bekliyor' && (
+          {showStartButton && (
 
             <TouchableOpacity style={styles.startBtn} onPress={handleStart} disabled={actionLoading !== null}>
 
@@ -983,7 +1000,7 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
 
 
-          {currentStatus === 'Devam Ediyor' && (
+          {showProgressActions && (
 
             <View style={styles.actionBar}>
 

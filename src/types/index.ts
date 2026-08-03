@@ -50,6 +50,7 @@ export interface WorkOrder {
   fieldNote?: string | null;
   fieldNoteAddedAt?: string | null;
   isPeriodic?: boolean;
+  parentWorkOrderId?: string | null;
   recurrenceInterval?: string;
   nextExecutionDate?: string | null;
   titleEn?: string | null;
@@ -172,6 +173,6 @@ export type RootTabParamList = {
   'İş Emirleri': undefined;
   'Harita': { focusLatitude?: number; focusLongitude?: number; focusLabel?: string } | undefined;
   'Genel Bakış': undefined;
-  'Sohbet': undefined;
+  'Sohbet': { conversationId?: string; senderUserId?: string } | undefined;
   'Profil': undefined;
 };

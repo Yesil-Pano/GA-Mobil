@@ -16,7 +16,8 @@ import { useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import OsmMapView, { type OsmMapViewRef, type OsmMarker } from '../components/OsmMapView';
 import { workOrdersApi } from '../services/api';
-import { extractApiErrorMessage, filterWorkOrdersForUser, getCurrentUserId, ensureAlertMessage } from '../utils/workOrders';
+import { extractApiErrorMessage, getCurrentUserId, ensureAlertMessage } from '../utils/workOrders';
+import { filterMobileVisibleWorkOrders } from '../utils/workOrderSchedule';
 import { resolveUserLocation } from '../utils/location';
 import type { WorkOrder, RootTabParamList } from '../types';
 import { useTheme } from '../theme/ThemeContext';
@@ -67,7 +68,7 @@ export default function MapScreen() {
     setLoading(true);
     try {
       const [res, userId] = await Promise.all([workOrdersApi.getAll(), getCurrentUserId()]);
-      const mine = filterWorkOrdersForUser(res.data, userId);
+      const mine = filterMobileVisibleWorkOrders(res.data, userId);
       setWorkOrders(mine);
       setLastRefreshed(new Date());
     } catch (err) {

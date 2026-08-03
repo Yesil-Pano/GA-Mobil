@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { notificationsApi } from '../services/api';
+import { formatApiDateTime } from '../utils/workOrderSchedule';
 
 export interface AppNotification {
   id: string;
@@ -23,18 +24,7 @@ export interface AppNotification {
 }
 
 function formatTime(iso?: string) {
-  if (!iso) return '—';
-  try {
-    const d = new Date(iso);
-    return d.toLocaleString('tr-TR', {
-      day: '2-digit',
-      month: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return iso;
-  }
+  return formatApiDateTime(iso);
 }
 
 function mapIcon(type: string): { icon: keyof typeof Ionicons.glyphMap; color: string } {
@@ -42,7 +32,7 @@ function mapIcon(type: string): { icon: keyof typeof Ionicons.glyphMap; color: s
   if (type === 'WorkOrderCreated') return { icon: 'add-circle-outline', color: '#F97316' };
   if (type === 'WorkOrderStatusChanged') return { icon: 'reload-circle-outline', color: '#3B82F6' };
   if (type === 'WorkOrderPeriodic') return { icon: 'repeat-outline', color: '#22C55E' };
-  if (type === 'ChatMessage') return { icon: 'chatbubble-outline', color: '#22C55E' };
+  if (type === 'ChatMessage' || type === 'DirectChatMessage') return { icon: 'chatbubble-outline', color: '#22C55E' };
   return { icon: 'notifications-outline', color: '#64748B' };
 }
 

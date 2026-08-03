@@ -12,7 +12,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import * as SecureStore from 'expo-secure-store';
 import { workOrdersApi } from '../services/api';
-import { filterWorkOrdersForUser, getCurrentUserId } from '../utils/workOrders';
+import { getCurrentUserId } from '../utils/workOrders';
+import { filterMobileVisibleWorkOrders } from '../utils/workOrderSchedule';
 import type { WorkOrder } from '../types';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -54,7 +55,7 @@ export default function OverviewScreen() {
       const name = await SecureStore.getItemAsync('user_name');
       if (name) setUserName(name);
       const [{ data }, userId] = await Promise.all([workOrdersApi.getAll(), getCurrentUserId()]);
-      setOrders(filterWorkOrdersForUser(data, userId));
+      setOrders(filterMobileVisibleWorkOrders(data, userId));
     } catch {
       // silent fail — show cached data
     } finally {

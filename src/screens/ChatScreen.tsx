@@ -9,24 +9,26 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  AppState,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
-import * as SecureStore from 'expo-secure-store';
+import { useFocusEffect, useRoute, type RouteProp } from '@react-navigation/native';
+import type { RootTabParamList } from '../types';
 import {
   HubConnection,
   HubConnectionBuilder,
   HubConnectionState,
   LogLevel,
 } from '@microsoft/signalr';
-import { chatApi, getChatHubUrl } from '../services/api';
-import type { ChatMessageDto } from '../types';
+import { chatApi, getChatHubUrl, type DirectContactDto, type DirectMessageDto } from '../services/api';
+import { getAccessToken } from '../utils/sessionTokens';
+import { getCurrentUserId, normalizeUserId } from '../utils/workOrders';
 import { useTheme } from '../theme/ThemeContext';
 
-type ListItem =
-  | { kind: 'msg'; data: ChatMessageDto }
-  | { kind: 'day'; id: string; label: string };
+function normalizeMessage(msg: DirectMessageDto, myUserId: string | null): DirectMessageDto {
+  if (!myUserId) return msg;
+  const isMine = normalizeUserId(msg.senderUserId) === normalizeUserId(myUserId);
+  return { ...msg, isMine, isReadByOther: isMine ? msg.isReadByOther : false };
+}
 
 function formatTime(iso: string): string {
   try {
@@ -36,60 +38,19 @@ function formatTime(iso: string): string {
   }
 }
 
-function dayLabel(iso: string): string {
-  try {
-    const d = new Date(iso);
-    const today = new Date();
-    const yesterday = new Date();
-    yesterday.setDate(today.getDate() - 1);
-    if (d.toDateString() === today.toDateString()) return 'Bugün';
-    if (d.toDateString() === yesterday.toDateString()) return 'Dün';
-    return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' });
-  } catch {
-    return '';
-  }
-}
-
-function buildListItems(messages: ChatMessageDto[]): ListItem[] {
-  const items: ListItem[] = [];
-  let lastDay = '';
-  for (const m of messages) {
-    const label = dayLabel(m.sentAt);
-    if (label && label !== lastDay) {
-      items.push({ kind: 'day', id: `day-${label}-${m.sentAt}`, label });
-      lastDay = label;
-    }
-    items.push({ kind: 'msg', data: m });
-  }
-  return items;
-}
-
-function MessageBubble({
-  msg,
-  myUserId,
-}: {
-  msg: ChatMessageDto;
-  myUserId: string | null;
-}) {
-  // Ben = saha personeli kendi mesajı (sağ / turuncu); ofis = sol
-  const isMe =
-    myUserId != null
-      ? msg.senderUserId === myUserId
-      : msg.isFromFieldWorker;
-
+function MessageBubble({ msg }: { msg: DirectMessageDto }) {
+  const isMe = msg.isMine;
   return (
     <View style={[styles.bubbleRow, isMe && styles.bubbleRowMe]}>
       <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleOther]}>
-        {!isMe && (
-          <Text style={styles.senderName}>
-            {msg.senderName}
-            <Text style={styles.senderRole}> · Operasyon</Text>
-          </Text>
-        )}
+        {!isMe && <Text style={styles.senderName}>{msg.senderName}</Text>}
         <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>{msg.body}</Text>
-        <Text style={[styles.bubbleTime, isMe && styles.bubbleTimeMe]}>
-          {formatTime(msg.sentAt)}
-        </Text>
+        <View style={styles.metaRow}>
+          <Text style={[styles.bubbleTime, isMe && styles.bubbleTimeMe]}>{formatTime(msg.sentAt)}</Text>
+          {isMe && msg.isReadByOther && (
+            <Ionicons name="checkmark-done" size={14} color="#BAE6FD" style={styles.readIcon} />
+          )}
+        </View>
       </View>
     </View>
   );
@@ -97,196 +58,288 @@ function MessageBubble({
 
 export default function ChatScreen() {
   const { colors } = useTheme();
-  const [messages, setMessages] = useState<ChatMessageDto[]>([]);
-  const [conversationId, setConversationId] = useState<string | null>(null);
+  const route = useRoute<RouteProp<RootTabParamList, 'Sohbet'>>();
+  const [contacts, setContacts] = useState<DirectContactDto[]>([]);
+  const [selectedContact, setSelectedContact] = useState<DirectContactDto | null>(null);
+  const [messages, setMessages] = useState<DirectMessageDto[]>([]);
+  const [search, setSearch] = useState('');
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loadingContacts, setLoadingContacts] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
+  const [isLive, setIsLive] = useState(false);
+  const [isOtherTyping, setIsOtherTyping] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [myUserId, setMyUserId] = useState<string | null>(null);
   const listRef = useRef<FlatList>(null);
   const connectionRef = useRef<HubConnection | null>(null);
   const conversationIdRef = useRef<string | null>(null);
+  const pendingDeepLinkRef = useRef<{ conversationId?: string; senderUserId?: string } | null>(null);
+  const typingHideRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const myUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    conversationIdRef.current = conversationId;
-  }, [conversationId]);
-
-  const upsertMessage = useCallback((msg: ChatMessageDto) => {
-    setMessages((prev) => {
-      if (prev.some((m) => m.id === msg.id)) return prev;
-      if (
-        msg.clientMessageId &&
-        prev.some((m) => m.clientMessageId === msg.clientMessageId)
-      ) {
-        return prev.map((m) =>
-          m.clientMessageId === msg.clientMessageId ? msg : m,
-        );
-      }
-      return [...prev, msg];
+    void getCurrentUserId().then((id) => {
+      myUserIdRef.current = id;
     });
-    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
   }, []);
 
-  const loadConversation = useCallback(async (silent = false) => {
+  const loadMessages = useCallback(async (conversationId: string, silent = false) => {
+    if (!silent) setLoadingMessages(true);
     try {
-      if (!silent) setError(null);
-      const uid = await SecureStore.getItemAsync('user_id');
-      setMyUserId(uid);
-      const { data } = await chatApi.getMyConversation(80);
-      setConversationId(data.id);
-      setMessages((prev) => {
-        const next = data.messages ?? [];
-        if (silent && prev.length === next.length) {
-          const same = prev.every((m, i) => m.id === next[i]?.id);
-          if (same) return prev;
-        }
-        return next;
-      });
-      if (data.id && !silent) {
-        await chatApi.markRead(data.id).catch(() => undefined);
-      }
-    } catch (err: any) {
-      if (!silent) {
-        const msg =
-          err?.response?.data?.message ||
-          err?.message ||
-          'Sohbet yüklenemedi.';
-        setError(String(msg));
-      }
+      const { data } = await chatApi.getMessages(conversationId);
+      setMessages(data.map((m) => normalizeMessage(m, myUserIdRef.current)));
+      await chatApi.markRead(conversationId).catch(() => undefined);
+      setContacts((prev) =>
+        prev.map((c) =>
+          c.conversationId === conversationId ? { ...c, unreadCount: 0 } : c,
+        ),
+      );
+    } catch {
+      if (!silent) setError('Mesajlar yüklenemedi.');
     } finally {
-      if (!silent) setLoading(false);
+      if (!silent) setLoadingMessages(false);
     }
   }, []);
 
-  const connectHub = useCallback(async (convId: string) => {
+  const openContact = useCallback(
+    async (contact: DirectContactDto) => {
+      setSelectedContact(contact);
+      setIsOtherTyping(false);
+      setError(null);
+      try {
+        let conversationId = contact.conversationId;
+        let resolved = contact;
+        if (!conversationId) {
+          const { data } = await chatApi.startConversation(contact.userId);
+          conversationId = data.conversationId;
+          resolved = { ...contact, ...data, userId: contact.userId };
+          setContacts((prev) =>
+            prev.map((c) => (c.userId === contact.userId ? resolved : c)),
+          );
+          setSelectedContact(resolved);
+        }
+        if (!conversationId) return;
+        conversationIdRef.current = conversationId;
+        const conn = connectionRef.current;
+        if (conn?.state === HubConnectionState.Connected) {
+          await conn.invoke('JoinConversation', conversationId);
+        }
+        await loadMessages(conversationId);
+      } catch {
+        setError('Konuşma açılamadı.');
+      }
+    },
+    [loadMessages],
+  );
+
+  const tryOpenDeepLink = useCallback(
+    async (list: DirectContactDto[]) => {
+      const pending = pendingDeepLinkRef.current;
+      if (!pending) return;
+      pendingDeepLinkRef.current = null;
+
+      let contact =
+        (pending.senderUserId
+          ? list.find((c) => c.userId === pending.senderUserId)
+          : undefined) ??
+        (pending.conversationId
+          ? list.find((c) => c.conversationId === pending.conversationId)
+          : undefined);
+
+      if (!contact && pending.senderUserId) {
+        try {
+          const { data } = await chatApi.startConversation(pending.senderUserId);
+          contact = { ...data, userId: pending.senderUserId };
+        } catch {
+          return;
+        }
+      }
+
+      if (contact) await openContact(contact);
+    },
+    [openContact],
+  );
+
+  const loadContacts = useCallback(async () => {
     try {
-      const token = await SecureStore.getItemAsync('user_token');
-      if (!token) return;
-
-      if (connectionRef.current) {
-        try {
-          await connectionRef.current.stop();
-        } catch {
-          /* ignore */
-        }
-        connectionRef.current = null;
-      }
-
-      const connection = new HubConnectionBuilder()
-        .withUrl(`${getChatHubUrl()}?access_token=${encodeURIComponent(token)}`)
-        .withAutomaticReconnect([0, 2000, 5000, 10000])
-        .configureLogging(LogLevel.Warning)
-        .build();
-
-      connection.on('MessageCreated', (dto: ChatMessageDto) => {
-        if (dto.conversationId === conversationIdRef.current) {
-          upsertMessage(dto);
-          chatApi.markRead(dto.conversationId).catch(() => undefined);
-        }
-      });
-
-      connection.onreconnected(async () => {
-        try {
-          await connection.invoke('JoinConversation', convId);
-        } catch {
-          /* ignore */
-        }
-      });
-
-      await connection.start();
-      if (connection.state === HubConnectionState.Connected) {
-        await connection.invoke('JoinConversation', convId);
-      }
-      connectionRef.current = connection;
-    } catch (err) {
-      console.warn('[Chat] SignalR bağlanamadı, polling ile devam:', err);
+      const { data } = await chatApi.listContacts();
+      setContacts(data);
+      setError(null);
+      await tryOpenDeepLink(data);
+    } catch {
+      setError('Kişi listesi yüklenemedi.');
+    } finally {
+      setLoadingContacts(false);
     }
-  }, [upsertMessage]);
+  }, [tryOpenDeepLink]);
 
   useFocusEffect(
     useCallback(() => {
-      let active = true;
-      (async () => {
-        setLoading(true);
-        await loadConversation(false);
-        if (!active) return;
-      })();
-
-      // SignalR düşse bile 4 sn'de bir sessiz yenile
-      const poll = setInterval(() => {
-        if (active) void loadConversation(true);
-      }, 4_000);
-
-      return () => {
-        active = false;
-        clearInterval(poll);
-      };
-    }, [loadConversation]),
+      const params = route.params;
+      if (params?.conversationId || params?.senderUserId) {
+        pendingDeepLinkRef.current = {
+          conversationId: params.conversationId,
+          senderUserId: params.senderUserId,
+        };
+      }
+      void loadContacts();
+    }, [loadContacts, route.params]),
   );
 
   useEffect(() => {
-    if (!conversationId) return;
-    void connectHub(conversationId);
-    return () => {
-      const conn = connectionRef.current;
-      connectionRef.current = null;
-      if (conn) {
-        conn.stop().catch(() => undefined);
+    let cancelled = false;
+
+    const connect = async () => {
+      try {
+        const connection = new HubConnectionBuilder()
+          .withUrl(getChatHubUrl(), {
+            accessTokenFactory: async () => (await getAccessToken()) || '',
+          })
+          .withAutomaticReconnect()
+          .configureLogging(LogLevel.Warning)
+          .build();
+
+        connection.on('DirectMessageCreated', (dto: DirectMessageDto) => {
+          const normalized = normalizeMessage(dto, myUserIdRef.current);
+          if (normalized.conversationId === conversationIdRef.current) {
+            setMessages((prev) =>
+              prev.some((m) => m.id === normalized.id) ? prev : [...prev, normalized],
+            );
+            void chatApi.markRead(normalized.conversationId).catch(() => undefined);
+          }
+          void loadContacts();
+        });
+
+        connection.on('DirectMessagesRead', () => {
+          setMessages((prev) => prev.map((m) => (m.isMine ? { ...m, isReadByOther: true } : m)));
+        });
+
+        connection.on('DirectConversationUpdated', () => {
+          void loadContacts();
+        });
+
+        connection.on('DirectTyping', (payload: { conversationId: string }) => {
+          if (payload.conversationId !== conversationIdRef.current) return;
+          setIsOtherTyping(true);
+          if (typingHideRef.current) clearTimeout(typingHideRef.current);
+          typingHideRef.current = setTimeout(() => setIsOtherTyping(false), 2500);
+        });
+
+        await connection.start();
+        if (cancelled) {
+          await connection.stop();
+          return;
+        }
+        connectionRef.current = connection;
+        setIsLive(true);
+        if (conversationIdRef.current) {
+          await connection.invoke('JoinConversation', conversationIdRef.current);
+        }
+      } catch {
+        setIsLive(false);
       }
     };
-  }, [conversationId, connectHub]);
+
+    void connect();
+    return () => {
+      cancelled = true;
+      setIsLive(false);
+      if (typingHideRef.current) clearTimeout(typingHideRef.current);
+      connectionRef.current?.stop().catch(() => undefined);
+      connectionRef.current = null;
+    };
+  }, [loadContacts]);
 
   useEffect(() => {
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void loadConversation(true);
-    });
-    return () => sub.remove();
-  }, [loadConversation]);
+    if (isLive || !selectedContact?.conversationId) return;
+    const id = setInterval(() => {
+      void loadMessages(selectedContact.conversationId!, true);
+      void loadContacts();
+    }, 4000);
+    return () => clearInterval(id);
+  }, [isLive, selectedContact?.conversationId, loadMessages, loadContacts]);
+
+  const handleInputChange = (value: string) => {
+    setInput(value);
+    const conversationId = selectedContact?.conversationId;
+    const conn = connectionRef.current;
+    if (conversationId && conn?.state === HubConnectionState.Connected) {
+      void conn.invoke('SendTyping', conversationId);
+    }
+  };
 
   const sendMessage = async () => {
     const text = input.trim();
-    if (!text || sending) return;
-
-    const clientMessageId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const optimistic: ChatMessageDto = {
-      id: `local-${clientMessageId}`,
-      conversationId: conversationId ?? '',
-      senderUserId: myUserId ?? '',
-      senderName: 'Ben',
-      isFromFieldWorker: true,
-      body: text,
-      sentAt: new Date().toISOString(),
-      clientMessageId,
-    };
-
-    setInput('');
+    const conversationId = selectedContact?.conversationId;
+    if (!text || !conversationId || sending) return;
     setSending(true);
-    upsertMessage(optimistic);
-
     try {
-      const { data } = await chatApi.sendMessage(text, clientMessageId);
-      upsertMessage(data);
-      if (!conversationId && data.conversationId) {
-        setConversationId(data.conversationId);
-      }
-    } catch (err: any) {
-      setMessages((prev) => prev.filter((m) => m.clientMessageId !== clientMessageId));
-      setError(
-        err?.response?.data?.message || err?.message || 'Mesaj gönderilemedi.',
-      );
+      const { data } = await chatApi.sendMessage(conversationId, text, `${Date.now()}`);
+      const normalized = normalizeMessage(data, myUserIdRef.current);
+      setMessages((prev) => (prev.some((m) => m.id === normalized.id) ? prev : [...prev, normalized]));
+      setInput('');
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
+    } catch {
+      setError('Mesaj gönderilemedi.');
     } finally {
       setSending(false);
     }
   };
 
-  const listItems = buildListItems(messages);
+  const filtered = contacts.filter((c) =>
+    c.fullName.toLowerCase().includes(search.trim().toLowerCase()),
+  );
 
-  if (loading) {
+  if (!selectedContact) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#F97316" />
-        <Text style={styles.muted}>Sohbet yükleniyor...</Text>
+      <View style={[styles.container, { backgroundColor: colors.bg }]}>
+        <View style={styles.searchWrap}>
+          <Ionicons name="search" size={18} color="#94A3B8" />
+          <TextInput
+            style={[styles.searchInput, { color: colors.text }]}
+            placeholder="Kişi ara..."
+            placeholderTextColor="#94A3B8"
+            value={search}
+            onChangeText={setSearch}
+          />
+        </View>
+        {error && <Text style={styles.errorText}>{error}</Text>}
+        {loadingContacts ? (
+          <ActivityIndicator style={{ marginTop: 24 }} color={colors.orange} />
+        ) : (
+          <FlatList
+            data={filtered}
+            keyExtractor={(item) => item.userId}
+            renderItem={({ item }) => (
+              <TouchableOpacity style={styles.contactRow} onPress={() => void openContact(item)}>
+                <View style={{ flex: 1 }}>
+                  <View style={styles.contactTitleRow}>
+                    {item.isGaManagement && (
+                      <View style={styles.badge}>
+                        <Text style={styles.badgeText}>{item.badgeLabel || 'GA Yönetim'}</Text>
+                      </View>
+                    )}
+                    <Text style={[styles.contactName, { color: colors.text }]}>{item.fullName}</Text>
+                  </View>
+                  {!item.isGaManagement && item.companyName ? (
+                    <Text style={styles.companyName}>{item.companyName}</Text>
+                  ) : null}
+                  <Text style={styles.preview} numberOfLines={1}>
+                    {item.lastMessagePreview || 'Mesaj yok'}
+                  </Text>
+                </View>
+                {item.unreadCount > 0 && (
+                  <View style={styles.unreadBadge}>
+                    <Text style={styles.unreadText}>{item.unreadCount}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            )}
+            ListEmptyComponent={
+              <Text style={styles.emptyText}>Mesajlaşabileceğiniz kişi bulunamadı.</Text>
+            }
+          />
+        )}
       </View>
     );
   }
@@ -295,78 +348,59 @@ export default function ChatScreen() {
     <KeyboardAvoidingView
       style={[styles.container, { backgroundColor: colors.bg }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      keyboardVerticalOffset={88}
     >
-      <View style={styles.headerBar}>
-        <View style={styles.headerAvatar}>
-          <Ionicons name="headset-outline" size={20} color="#F97316" />
-        </View>
-        <View style={styles.headerTextWrap}>
-          <Text style={styles.headerTitle}>Operasyon</Text>
-          <Text style={styles.headerSub}>Ofis operasyon ekibi</Text>
+      <View style={styles.chatHeader}>
+        <TouchableOpacity
+          onPress={() => {
+            setSelectedContact(null);
+            setMessages([]);
+            conversationIdRef.current = null;
+            setIsOtherTyping(false);
+          }}
+        >
+          <Ionicons name="arrow-back" size={24} color={colors.text} />
+        </TouchableOpacity>
+        <View style={{ flex: 1, marginLeft: 12 }}>
+          {selectedContact.isGaManagement && (
+            <Text style={styles.headerBadge}>{selectedContact.badgeLabel || 'GA Yönetim'}</Text>
+          )}
+          <Text style={[styles.headerTitle, { color: colors.text }]}>{selectedContact.fullName}</Text>
+          {isOtherTyping && (
+            <Text style={styles.typingText}>Yazıyor...</Text>
+          )}
         </View>
       </View>
 
-      {error ? (
-        <TouchableOpacity style={styles.errorBar} onPress={() => void loadConversation(false)}>
-          <Ionicons name="warning-outline" size={14} color="#F97316" />
-          <Text style={styles.errorText}>{error} — Yenile</Text>
-        </TouchableOpacity>
-      ) : null}
+      {error && <Text style={styles.errorText}>{error}</Text>}
 
-      {listItems.length === 0 ? (
-        <View style={styles.emptyWrap}>
-          <Ionicons name="chatbubbles-outline" size={40} color="#475569" />
-          <Text style={styles.emptyTitle}>Operasyon ekibine yazın</Text>
-          <Text style={styles.emptySub}>
-            Sorularınızı ve saha bilgilendirmelerinizi buradan iletebilirsiniz.
-          </Text>
-        </View>
+      {loadingMessages ? (
+        <ActivityIndicator style={{ marginTop: 24 }} color={colors.orange} />
       ) : (
         <FlatList
           ref={listRef}
-          data={listItems}
-          keyExtractor={(item) =>
-            item.kind === 'day' ? item.id : item.data.id
-          }
-          renderItem={({ item }) => {
-            if (item.kind === 'day') {
-              return (
-                <View style={styles.daySep}>
-                  <Text style={styles.daySepText}>{item.label}</Text>
-                </View>
-              );
-            }
-            return <MessageBubble msg={item.data} myUserId={myUserId} />;
-          }}
-          contentContainerStyle={styles.messageList}
-          onContentSizeChange={() =>
-            listRef.current?.scrollToEnd({ animated: false })
-          }
+          data={messages}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => <MessageBubble msg={item} />}
+          contentContainerStyle={styles.messagesContent}
+          onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
         />
       )}
 
-      <View style={styles.inputBar}>
+      <View style={styles.inputRow}>
         <TextInput
-          style={styles.input}
-          placeholder="Operasyona mesaj yaz..."
-          placeholderTextColor="#64748B"
+          style={[styles.input, { color: colors.text, borderColor: colors.border }]}
+          placeholder="Mesaj yazın..."
+          placeholderTextColor="#94A3B8"
           value={input}
-          onChangeText={setInput}
-          multiline
-          maxLength={2000}
-          editable={!sending}
+          onChangeText={handleInputChange}
         />
         <TouchableOpacity
-          style={[styles.sendBtn, (!input.trim() || sending) && styles.sendBtnDisabled]}
-          onPress={sendMessage}
-          disabled={!input.trim() || sending}
+          style={[styles.sendBtn, { backgroundColor: colors.orange }]}
+          onPress={() => void sendMessage()}
+          disabled={sending || !input.trim()}
         >
-          {sending ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <Ionicons name="send" size={18} color="#fff" />
-          )}
+          <Ionicons name="send" size={20} color="#fff" />
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -374,143 +408,96 @@ export default function ChatScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0F172A' },
-  centered: {
-    flex: 1,
-    backgroundColor: '#0F172A',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  muted: { color: '#94A3B8', marginTop: 12, fontSize: 16 },
-
-  headerBar: {
+  container: { flex: 1 },
+  searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: '#1A233A',
-    borderBottomWidth: 1,
-    borderBottomColor: '#334155',
-    gap: 10,
-  },
-  headerAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#F9731622',
-    borderWidth: 1,
-    borderColor: '#F9731644',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTextWrap: { flex: 1 },
-  headerTitle: { color: '#fff', fontSize: 18, fontWeight: '700' },
-  headerSub: { color: '#94A3B8', fontSize: 14, marginTop: 1 },
-
-  errorBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#F9731618',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F9731633',
-  },
-  errorText: { color: '#F97316', fontSize: 14, fontWeight: '600', flex: 1 },
-
-  emptyWrap: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 32,
-  },
-  emptyTitle: {
-    color: '#E2E8F0',
-    fontSize: 18,
-    fontWeight: '700',
-    marginTop: 12,
-  },
-  emptySub: {
-    color: '#94A3B8',
-    fontSize: 15,
-    textAlign: 'center',
-    marginTop: 6,
-    lineHeight: 18,
-  },
-
-  messageList: { padding: 16, paddingBottom: 8 },
-  daySep: { alignItems: 'center', marginVertical: 10 },
-  daySepText: {
-    color: '#94A3B8',
-    fontSize: 13,
-    backgroundColor: '#1E293B',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 10,
-    overflow: 'hidden',
-  },
-
-  bubbleRow: { flexDirection: 'row', marginBottom: 10 },
-  bubbleRowMe: { justifyContent: 'flex-end' },
-  bubble: {
-    maxWidth: '78%',
-    borderRadius: 16,
-    padding: 12,
-    paddingBottom: 6,
-  },
-  bubbleOther: {
-    backgroundColor: '#1E293B',
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  bubbleMe: { backgroundColor: '#F97316' },
-  senderName: {
-    color: '#CBD5E1',
-    fontSize: 13,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  senderRole: { color: '#94A3B8', fontWeight: '500' },
-  bubbleText: { color: '#E2E8F0', fontSize: 16, lineHeight: 20 },
-  bubbleTextMe: { color: '#fff' },
-  bubbleTime: {
-    color: '#64748B',
-    fontSize: 12,
-    marginTop: 4,
-    alignSelf: 'flex-end',
-  },
-  bubbleTimeMe: { color: '#ffffff88' },
-
-  inputBar: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    padding: 10,
-    paddingBottom: Platform.OS === 'ios' ? 14 : 10,
-    borderTopWidth: 1,
-    borderTopColor: '#334155',
-    backgroundColor: '#1A233A',
     gap: 8,
+    margin: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+  },
+  searchInput: { flex: 1, fontSize: 15 },
+  contactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E2E8F0',
+  },
+  contactTitleRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
+  contactName: { fontSize: 16, fontWeight: '700' },
+  companyName: { fontSize: 11, color: '#64748B', marginTop: 2 },
+  preview: { fontSize: 12, color: '#64748B', marginTop: 4 },
+  badge: { backgroundColor: '#1A233A', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  badgeText: { color: '#fff', fontSize: 9, fontWeight: '700' },
+  unreadBadge: {
+    backgroundColor: '#EF4444',
+    borderRadius: 10,
+    minWidth: 20,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    alignItems: 'center',
+  },
+  unreadText: { color: '#fff', fontSize: 10, fontWeight: '700' },
+  emptyText: { textAlign: 'center', marginTop: 32, color: '#94A3B8' },
+  chatHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E2E8F0',
+  },
+  headerBadge: { fontSize: 10, fontWeight: '700', color: '#1A233A' },
+  headerTitle: { fontSize: 17, fontWeight: '700' },
+  typingText: { fontSize: 11, color: '#059669', marginTop: 2 },
+  messagesContent: { padding: 12, paddingBottom: 8 },
+  bubbleRow: { marginBottom: 8, alignItems: 'flex-start' },
+  bubbleRowMe: { alignItems: 'flex-end' },
+  bubble: {
+    maxWidth: '80%',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#fff',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#E2E8F0',
+  },
+  bubbleMe: { backgroundColor: '#F97316', borderColor: '#F97316' },
+  bubbleOther: {},
+  senderName: { fontSize: 11, fontWeight: '600', color: '#64748B', marginBottom: 2 },
+  bubbleText: { fontSize: 15, color: '#1E293B' },
+  bubbleTextMe: { color: '#fff' },
+  metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginTop: 4, gap: 4 },
+  bubbleTime: { fontSize: 10, color: '#94A3B8' },
+  bubbleTimeMe: { color: 'rgba(255,255,255,0.75)' },
+  readIcon: { marginLeft: 2 },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#E2E8F0',
   },
   input: {
     flex: 1,
-    backgroundColor: '#1E293B',
     borderWidth: 1,
-    borderColor: '#334155',
     borderRadius: 20,
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    color: '#E2E8F0',
-    fontSize: 16,
-    maxHeight: 100,
+    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
+    fontSize: 15,
   },
   sendBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#F97316',
-    justifyContent: 'center',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  sendBtnDisabled: { backgroundColor: '#334155' },
+  errorText: { color: '#EF4444', textAlign: 'center', padding: 8, fontSize: 12 },
 });

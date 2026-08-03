@@ -1,11 +1,14 @@
 import type { WorkOrder } from '../types';
+import { filterWorkOrdersForUser } from './workOrders';
+
+const TR_TIMEZONE = 'Europe/Istanbul';
 
 export function isArızaWorkOrder(order: Pick<WorkOrder, 'type' | 'category'>): boolean {
   const combined = `${order.type ?? ''} ${order.category ?? ''}`.toLocaleLowerCase('tr-TR');
   return combined.includes('arıza') || combined.includes('ariza');
 }
 
-/** API'den gelen durumu mobilde olduğu gibi göster (Bekliyor saklanmaz). */
+/** API'den gelen durumu mobilde olduğu gibi göster. */
 export function displayWorkOrderStatus(status?: string | null): string {
   const s = (status ?? '').trim();
   if (!s) return 'Bekliyor';
@@ -17,14 +20,79 @@ export function isWorkOrderFinished(status?: string | null): boolean {
   return s === 'Tamamlandı' || s === 'İptal' || s === 'İptal Edildi';
 }
 
-/** API UTC zamanını Date'e çevirir ("yyyy-MM-dd HH:mm" UTC kabul edilir). */
+/** Saha henüz işe başlamadıysa İşe Başla göster (Bekliyor veya yanlış Devam Ediyor kaydı). */
+export function canShowStartWorkOrder(order: Pick<WorkOrder, 'status' | 'startedAt'>): boolean {
+  if (isWorkOrderFinished(order.status)) return false;
+  const status = displayWorkOrderStatus(order.status);
+  if (status === 'Bekliyor') return true;
+  if (status === 'Devam Ediyor' && !order.startedAt?.trim()) return true;
+  return false;
+}
+
+/** Tamamla / İptal yalnızca saha gerçekten başladıktan sonra. */
+export function shouldShowInProgressActions(order: Pick<WorkOrder, 'status' | 'startedAt'>): boolean {
+  const status = displayWorkOrderStatus(order.status);
+  return status === 'Devam Ediyor' && !!order.startedAt?.trim();
+}
+
+export function isWithinActiveWindow(
+  order: Pick<WorkOrder, 'startDate' | 'endDate'>,
+  now: Date = new Date(),
+): boolean {
+  const start = parseWorkOrderDate(order.startDate);
+  const end = parseWorkOrderDate(order.endDate);
+  if (!start || !end) return true;
+  const t = now.getTime();
+  return start.getTime() <= t && end.getTime() >= t;
+}
+
+/**
+ * Mobil liste: atanmış + aktif dönem.
+ * Periyodik bakımda yıl boyu tarih aralıklı şablon satırını, aktif alt dönem varken gizler.
+ */
+export function filterMobileVisibleWorkOrders(
+  orders: WorkOrder[] | null | undefined,
+  userId: string | null,
+): WorkOrder[] {
+  const mine = filterWorkOrdersForUser(orders, userId);
+  const now = new Date();
+  const active = mine.filter((o) => isWithinActiveWindow(o, now));
+
+  const parentIdsWithActiveChild = new Set(
+    active
+      .filter((o) => o.parentWorkOrderId)
+      .map((o) => o.parentWorkOrderId as string),
+  );
+
+  return active.filter((o) => {
+    if (o.isPeriodic && !o.parentWorkOrderId && parentIdsWithActiveChild.has(o.id)) {
+      return false;
+    }
+    return true;
+  });
+}
+
+/** API UTC zamanını Date'e çevirir (yyyy-MM-dd HH:mm UTC). */
 export function parseWorkOrderDate(value?: string | null): Date | null {
   if (!value?.trim()) return null;
   const trimmed = value.trim();
 
-  // Eski format: "yyyy-MM-dd HH:mm" → UTC
   if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(trimmed) && !trimmed.includes('T')) {
     const parsed = new Date(trimmed.replace(' ', 'T') + ':00Z');
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  if (/^\d{2}\.\d{2}\.\d{4}/.test(trimmed)) {
+    const [datePart, timePart = '00:00'] = trimmed.split(' ');
+    const [day, month, year] = datePart.split('.');
+    const [hour, minute] = timePart.split(':');
+    const parsed = new Date(Date.UTC(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+    ));
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
 
@@ -32,22 +100,27 @@ export function parseWorkOrderDate(value?: string | null): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-/** UTC Date → Türkiye saati (Europe/Istanbul) metin. */
+/** UTC Date → Türkiye saati metin → 01.09.2026 00:00 */
 export function formatWorkOrderDate(date: Date): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Istanbul',
-    year: 'numeric',
-    month: '2-digit',
+  return new Intl.DateTimeFormat('tr-TR', {
+    timeZone: TR_TIMEZONE,
     day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
-  }).formatToParts(date);
+  }).format(date);
+}
 
-  const get = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((p) => p.type === type)?.value ?? '';
-
-  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`;
+/** Yalnızca tarih → 01.09.2026 */
+export function formatWorkOrderDateOnly(date: Date): string {
+  return new Intl.DateTimeFormat('tr-TR', {
+    timeZone: TR_TIMEZONE,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(date);
 }
 
 export function formatApiDateTime(value?: string | null): string {
