@@ -17,6 +17,9 @@ export interface AppNotification {
   time: string;
   icon: keyof typeof Ionicons.glyphMap;
   color: string;
+  type: string;
+  workOrderId?: string | null;
+  isPlaceholder?: boolean;
 }
 
 function formatTime(iso?: string) {
@@ -36,25 +39,31 @@ function formatTime(iso?: string) {
 
 function mapIcon(type: string): { icon: keyof typeof Ionicons.glyphMap; color: string } {
   if (type === 'WorkOrderAssigned') return { icon: 'person-add-outline', color: '#F97316' };
+  if (type === 'WorkOrderCreated') return { icon: 'add-circle-outline', color: '#F97316' };
   if (type === 'WorkOrderStatusChanged') return { icon: 'reload-circle-outline', color: '#3B82F6' };
   if (type === 'WorkOrderPeriodic') return { icon: 'repeat-outline', color: '#22C55E' };
+  if (type === 'ChatMessage') return { icon: 'chatbubble-outline', color: '#22C55E' };
   return { icon: 'notifications-outline', color: '#64748B' };
 }
 
 interface Props {
   visible: boolean;
   onClose: () => void;
+  onNavigate?: (payload: { type: string; workOrderId?: string | null }) => void;
+  onUnreadChange?: (count: number) => void;
 }
 
-export default function NotificationPanel({ visible, onClose }: Props) {
+export default function NotificationPanel({ visible, onClose, onNavigate, onUnreadChange }: Props) {
   const [loading, setLoading] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
 
   const loadNotifications = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await notificationsApi.getMine(20);
-      const items = (data.items || []).map((n) => {
+      const { data } = await notificationsApi.getMine(5);
+      onUnreadChange?.(data.unread ?? 0);
+
+      const items = (data.items || []).slice(0, 5).map((n) => {
         const meta = mapIcon(n.type);
         return {
           id: n.id,
@@ -62,6 +71,8 @@ export default function NotificationPanel({ visible, onClose }: Props) {
           time: formatTime(n.createdAt),
           icon: meta.icon,
           color: meta.color,
+          type: n.type,
+          workOrderId: n.workOrderId,
         };
       });
 
@@ -73,11 +84,18 @@ export default function NotificationPanel({ visible, onClose }: Props) {
                 id: 'empty',
                 text: 'Size atanmış yeni bildirim yok.',
                 time: '—',
-                icon: 'notifications-off-outline',
+                icon: 'notifications-off-outline' as const,
                 color: '#64748B',
+                type: 'empty',
+                isPlaceholder: true,
               },
-            ]
+            ],
       );
+
+      if ((data.unread ?? 0) > 0) {
+        await notificationsApi.markAllRead().catch(() => undefined);
+        onUnreadChange?.(0);
+      }
     } catch {
       setNotifications([
         {
@@ -86,16 +104,24 @@ export default function NotificationPanel({ visible, onClose }: Props) {
           time: 'Hata',
           icon: 'alert-circle-outline',
           color: '#EF4444',
+          type: 'error',
+          isPlaceholder: true,
         },
       ]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [onUnreadChange]);
 
   useEffect(() => {
-    if (visible) loadNotifications();
+    if (visible) void loadNotifications();
   }, [visible, loadNotifications]);
+
+  const handleItemPress = async (item: AppNotification) => {
+    if (item.isPlaceholder) return;
+    onClose();
+    onNavigate?.({ type: item.type, workOrderId: item.workOrderId });
+  };
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -119,7 +145,12 @@ export default function NotificationPanel({ visible, onClose }: Props) {
           ) : (
             <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
               {notifications.map((item) => (
-                <View key={item.id} style={styles.item}>
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.item}
+                  activeOpacity={item.isPlaceholder ? 1 : 0.7}
+                  onPress={() => void handleItemPress(item)}
+                >
                   <View style={[styles.itemIcon, { backgroundColor: item.color + '22' }]}>
                     <Ionicons name={item.icon} size={18} color={item.color} />
                   </View>
@@ -127,7 +158,7 @@ export default function NotificationPanel({ visible, onClose }: Props) {
                     <Text style={styles.itemText}>{item.text}</Text>
                     <Text style={styles.itemTime}>{item.time}</Text>
                   </View>
-                </View>
+                </TouchableOpacity>
               ))}
             </ScrollView>
           )}

@@ -21,10 +21,13 @@ import type { AppColors } from '../theme/ThemeContext';
 
 type NavProp = NativeStackNavigationProp<WorkOrdersStackParamList, 'WorkOrdersList'>;
 
+import { displayWorkOrderStatus } from '../utils/workOrderSchedule';
+
 const STATUS_ORDER: Record<string, number> = {
-  'Devam Ediyor': 0,
-  'Tamamlandı': 1,
-  'İptal': 2,
+  'Bekliyor': 0,
+  'Devam Ediyor': 1,
+  'Tamamlandı': 2,
+  'İptal': 3,
 };
 
 function sortOrders(list: WorkOrder[]) {
@@ -36,19 +39,15 @@ function sortOrders(list: WorkOrder[]) {
 }
 
 const STATUS_COLORS: Record<string, string> = {
+  'Bekliyor': '#F59E0B',
   'Devam Ediyor': '#3B82F6',
   'Tamamlandı': '#22C55E',
   'İptal': '#EF4444',
   'İptal Edildi': '#EF4444',
 };
 
-function normalizeStatus(status?: string | null): string {
-  if (!status || status === 'Bekliyor') return 'Devam Ediyor';
-  return status;
-}
-
 function statusColor(status: string): string {
-  return STATUS_COLORS[normalizeStatus(status)] ?? '#64748B';
+  return STATUS_COLORS[displayWorkOrderStatus(status)] ?? '#64748B';
 }
 
 interface CardProps {
@@ -72,7 +71,7 @@ function WorkOrderCard({ order, index, onPress, colors, fs }: CardProps) {
         <View style={styles.cardHeader}>
           <Text style={[styles.cardIndex, { color: colors.muted, fontSize: fs(12) }]}>#{index + 1}</Text>
           <View style={[styles.badge, { backgroundColor: badgeColor + '28', borderColor: badgeColor }]}>
-            <Text style={{ color: badgeColor, fontSize: fs(11), fontWeight: '700' }}>{normalizeStatus(order.status)}</Text>
+            <Text style={{ color: badgeColor, fontSize: fs(11), fontWeight: '700' }}>{displayWorkOrderStatus(order.status)}</Text>
           </View>
         </View>
 
@@ -219,7 +218,7 @@ export default function WorkOrdersScreen() {
     fetchOrders(true);
   };
 
-  const statusFilters = ['Devam Ediyor', 'Tamamlandı', 'İptal'];
+  const statusFilters = ['Bekliyor', 'Devam Ediyor', 'Tamamlandı', 'İptal'];
 
   if (loading) {
     return (

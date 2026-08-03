@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,9 +13,11 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  type TextInput as TextInputType,
 } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { authApi, usersApi } from '../services/api';
+import { saveSessionTokens } from '../utils/sessionTokens';
 import { useTheme } from '../theme/ThemeContext';
 
 interface LoginScreenProps {
@@ -26,9 +28,11 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const { colors, fs, isDark } = useTheme();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const passwordRef = useRef<TextInputType>(null);
 
   React.useEffect(() => {
     (async () => {
@@ -42,16 +46,16 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
-      Alert.alert('Eksik Bilgi', 'Lütfen e-posta ve şifre alanlarını doldurunuz.');
+      Alert.alert('Eksik Bilgi', 'Lütfen e-posta/kullanıcı adı ve şifre alanlarını doldurunuz.');
       return;
     }
 
     setLoading(true);
     try {
       const response = await authApi.login({ email: email.trim(), password });
-      const { token, userId, username, fullName } = response.data;
+      const { token, userId, username, fullName, refreshToken } = response.data;
 
-      await SecureStore.setItemAsync('user_token', token ?? '');
+      await saveSessionTokens(token ?? '', refreshToken);
       if (userId) await SecureStore.setItemAsync('user_id', String(userId));
       if (username) await SecureStore.setItemAsync('user_username', String(username));
       if (fullName) await SecureStore.setItemAsync('user_name', String(fullName));
@@ -98,11 +102,14 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     <SafeAreaView style={[styles.safeArea, { backgroundColor: bg }]}>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
       >
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           <View style={[styles.card, { backgroundColor: cardBg, borderColor: colors.border }]}>
             <View style={styles.logoContainer}>
@@ -123,18 +130,22 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               <Text style={[styles.label, { color: colors.muted, fontSize: fs(11) }]}>E-Posta / Kullanıcı Adı</Text>
               <TextInput
                 style={[styles.input, { backgroundColor: inputBg, borderColor: colors.border, color: colors.text, fontSize: fs(14) }]}
-                placeholder="ornek@sirket.com"
+                placeholder="ornek@sirket.com veya kullaniciadi"
                 placeholderTextColor={colors.muted}
                 value={email}
                 onChangeText={setEmail}
                 autoCapitalize="none"
-                keyboardType="email-address"
                 autoCorrect={false}
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => passwordRef.current?.focus()}
+                onFocus={() => scrollRef.current?.scrollTo({ y: 120, animated: true })}
               />
 
               <Text style={[styles.label, { color: colors.muted, fontSize: fs(11) }]}>Şifre</Text>
               <View style={styles.passwordRow}>
                 <TextInput
+                  ref={passwordRef}
                   style={[styles.input, styles.passwordInput, { backgroundColor: inputBg, borderColor: colors.border, color: colors.text, fontSize: fs(14) }]}
                   placeholder="••••••••"
                   placeholderTextColor={colors.muted}
@@ -142,6 +153,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   value={password}
                   onChangeText={setPassword}
                   autoCapitalize="none"
+                  returnKeyType="done"
+                  onSubmitEditing={() => void handleLogin()}
+                  onFocus={() => scrollRef.current?.scrollToEnd({ animated: true })}
                 />
                 <TouchableOpacity
                   style={styles.eyeButton}
@@ -191,7 +205,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   flex: { flex: 1 },
-  scroll: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  scroll: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 20, paddingBottom: 48 },
   card: {
     width: '100%',
     maxWidth: 400,

@@ -68,9 +68,10 @@ export default function OverviewScreen() {
   // ── Derived stats ──────────────────────────────────────────────────────────
   const today = new Date().toISOString().slice(0, 10);
   const todayOrders  = orders.filter((o) => o.startDate?.startsWith(today));
-  const inProgress   = orders.filter((o) => o.status === 'Devam Ediyor' || o.status === 'Bekliyor');
+  const waiting      = orders.filter((o) => o.status === 'Bekliyor');
+  const inProgress   = orders.filter((o) => o.status === 'Devam Ediyor');
   const completed    = orders.filter((o) => o.status === 'Tamamlandı');
-  const cancelled    = orders.filter((o) => o.status === 'İptal');
+  const cancelled    = orders.filter((o) => o.status === 'İptal' || o.status === 'İptal Edildi');
 
   // ── 5 most recent orders ────────────────────────────────────────────────────
   const recentOrders = [...orders]
@@ -78,6 +79,7 @@ export default function OverviewScreen() {
     .slice(0, 5);
 
   const STATUS_COLORS: Record<string, string> = {
+    'Bekliyor':     '#F59E0B',
     'Devam Ediyor': '#3B82F6',
     'Tamamlandı':   '#22C55E',
     'İptal':        '#EF4444',
@@ -122,6 +124,7 @@ export default function OverviewScreen() {
       {/* ── Stat grid ────────────────────────────────── */}
       <View style={styles.statGrid}>
         <StatCard label="Bugünkü İşler" value={todayOrders.length} icon="today-outline" color="#F97316" surface={colors.surface} border={colors.border} text={colors.text} muted={colors.faint} />
+        <StatCard label="Bekliyor" value={waiting.length} icon="time-outline" color="#F59E0B" surface={colors.surface} border={colors.border} text={colors.text} muted={colors.faint} />
         <StatCard label="Devam Ediyor" value={inProgress.length} icon="reload-circle-outline" color="#3B82F6" surface={colors.surface} border={colors.border} text={colors.text} muted={colors.faint} />
         <StatCard label="Tamamlandı" value={completed.length} icon="checkmark-circle-outline" color="#22C55E" surface={colors.surface} border={colors.border} text={colors.text} muted={colors.faint} />
         <StatCard label="İptal" value={cancelled.length} icon="close-circle-outline" color="#EF4444" surface={colors.surface} border={colors.border} text={colors.text} muted={colors.faint} />

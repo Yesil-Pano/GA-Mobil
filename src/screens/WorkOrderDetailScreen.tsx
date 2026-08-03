@@ -32,14 +32,13 @@ import type { WorkOrdersStackParamList, RootTabParamList } from '../types';
 
 import { workOrdersApi, photosApi, getPhotoImageSource } from '../services/api';
 
-import { extractApiErrorMessage, ensureAlertMessage } from '../utils/workOrders';
+import { extractApiErrorMessage, ensureAlertMessage, filterWorkOrdersForUser, getCurrentUserId } from '../utils/workOrders';
 
 import {
-
   formatApiDateTime,
-
   durationMinutes,
-
+  displayWorkOrderStatus,
+  isWorkOrderFinished,
 } from '../utils/workOrderSchedule';
 
 import {
@@ -124,8 +123,11 @@ export default function WorkOrderDetailScreen({ route }: Props) {
     let cancelled = false;
     (async () => {
       try {
-        const { data } = await workOrdersApi.getAll();
-        const found = data.find((o) => o.id === pendingId);
+        const [{ data }, userId] = await Promise.all([
+          workOrdersApi.getAll(),
+          getCurrentUserId(),
+        ]);
+        const found = filterWorkOrdersForUser(data, userId).find((o) => o.id === pendingId);
         if (!cancelled && found) setOrder(found);
       } catch (err) {
         console.warn('[WorkOrderDetail] Yüklenemedi:', err);
@@ -137,7 +139,7 @@ export default function WorkOrderDetailScreen({ route }: Props) {
   }, [initialOrder, pendingId]);
 
   const [currentStatus, setCurrentStatus] = useState(
-    initialOrder?.status === 'Bekliyor' || !initialOrder?.status ? 'Devam Ediyor' : (initialOrder?.status ?? 'Devam Ediyor'),
+    displayWorkOrderStatus(initialOrder?.status),
   );
 
   const [actionLoading, setActionLoading] = useState<'start' | 'complete' | 'cancel' | null>(null);
@@ -168,7 +170,7 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
   useEffect(() => {
     if (!order) return;
-    setCurrentStatus(order.status === 'Bekliyor' || !order.status ? 'Devam Ediyor' : order.status);
+    setCurrentStatus(displayWorkOrderStatus(order.status));
     setSahaNote(order.fieldNote ?? '');
     setStartedAt(order.startedAt ?? null);
     setCompletedAt(order.completedAt ?? null);
@@ -179,7 +181,7 @@ export default function WorkOrderDetailScreen({ route }: Props) {
     setFieldNoteEn(order.fieldNoteEn ?? null);
   }, [order?.id]);
 
-  const isFinished = currentStatus === 'Tamamlandı' || currentStatus === 'İptal';
+  const isFinished = isWorkOrderFinished(currentStatus);
 
   const buckets = usePhotoBuckets(photos, savedPhotos);
 
@@ -950,6 +952,32 @@ export default function WorkOrderDetailScreen({ route }: Props) {
               <Text style={styles.progressText}>{uploadProgress}</Text>
 
             </View>
+
+          )}
+
+
+
+          {currentStatus === 'Bekliyor' && (
+
+            <TouchableOpacity style={styles.startBtn} onPress={handleStart} disabled={actionLoading !== null}>
+
+              {actionLoading === 'start' ? (
+
+                <ActivityIndicator size="small" color="#fff" />
+
+              ) : (
+
+                <>
+
+                  <Ionicons name="play-circle" size={28} color="#fff" />
+
+                  <Text style={styles.startBtnText}>İşe Başla</Text>
+
+                </>
+
+              )}
+
+            </TouchableOpacity>
 
           )}
 

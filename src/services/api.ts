@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import type {
   LoginRequest,
@@ -13,43 +13,74 @@ import type {
   MyConversationResponse,
 } from '../types';
 import { emitAuthSessionExpired } from '../utils/authSession';
-// ─── Axios Instance ───────────────────────────────────────────────────────────
+import {
+  clearSessionTokens,
+  getAccessToken,
+  tryRefreshSession,
+} from '../utils/sessionTokens';
 
-const api = axios.create({
-  // Saha APK: HTTP (cleartext). Sunucuda bu porta giden instance güncel backend olmalı.
-  baseURL: 'http://204.168.249.86:8080/api',
+const BASE_URL = 'http://204.168.249.86:8080/api';
+
+const authClient = axios.create({
+  baseURL: BASE_URL,
   timeout: 15000,
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Automatically attach the stored JWT token to every request
+const api = axios.create({
+  baseURL: BASE_URL,
+  timeout: 15000,
+  headers: { 'Content-Type': 'application/json' },
+});
+
 api.interceptors.request.use(async (config) => {
-  const token = await SecureStore.getItemAsync('user_token');
+  const token = await getAccessToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
-  // Multi-tenant: partnerKey ASLA gönderilmez — saha kullanıcısı yalnız kendi TenantId'si ile çalışır.
   return config;
 });
 
+type RetryConfig = InternalAxiosRequestConfig & { _retry?: boolean };
+
 api.interceptors.response.use(
   (response) => response,
-  async (error) => {
+  async (error: AxiosError) => {
     const status = error.response?.status;
-    const code = error.response?.data?.code;
+    const code = (error.response?.data as { code?: string })?.code;
+    const original = error.config as RetryConfig | undefined;
+
+    const isAuthEndpoint =
+      original?.url?.includes('/auth/login') ||
+      original?.url?.includes('/auth/refresh');
+
+    if (status === 401 && original && !original._retry && !isAuthEndpoint) {
+      original._retry = true;
+      const refreshed = await tryRefreshSession();
+      if (refreshed) {
+        const token = await getAccessToken();
+        if (token) {
+          original.headers.Authorization = `Bearer ${token}`;
+        }
+        return api.request(original);
+      }
+    }
+
     if (status === 401 || code === 'DEMO_EXPIRED' || code === 'TENANT_INACTIVE') {
       if (code === 'DEMO_EXPIRED') {
         await SecureStore.setItemAsync(
           'ga_logout_reason',
-          error.response?.data?.message || 'Demo süreniz dolmuştur. Erişim kapatıldı.',
+          (error.response?.data as { message?: string })?.message ||
+            'Demo süreniz dolmuştur. Erişim kapatıldı.',
         );
       } else if (code === 'TENANT_INACTIVE') {
         await SecureStore.setItemAsync(
           'ga_logout_reason',
-          error.response?.data?.message || 'Firma erişimi kapatıldı.',
+          (error.response?.data as { message?: string })?.message ||
+            'Firma erişimi kapatıldı.',
         );
       }
-      await SecureStore.deleteItemAsync('user_token');
+      await clearSessionTokens();
       await SecureStore.deleteItemAsync('remember_me');
       emitAuthSessionExpired();
     }
@@ -57,12 +88,12 @@ api.interceptors.response.use(
   },
 );
 
-// ─── Auth API ────────────────────────────────────────────────────────────────
-
 export const authApi = {
-  /** POST /auth/login → { token, userId, fullName } */
-  login: (data: LoginRequest) =>
-    api.post<LoginResponse>('/auth/login', data),
+  login: (data: LoginRequest) => authClient.post<LoginResponse>('/auth/login', data),
+  refresh: (data: { refreshToken: string }) =>
+    authClient.post<LoginResponse>('/auth/refresh', data),
+  logout: (data: { refreshToken: string }) =>
+    authClient.post<{ message: string }>('/auth/logout', data),
 };
 
 // ─── Work Orders API ─────────────────────────────────────────────────────────
@@ -134,7 +165,7 @@ export const locationApi = {
 
 export const notificationsApi = {
   /** GET /notifications — sahacı için yalnızca kendisine hedeflenenler */
-  getMine: (take = 20) =>
+  getMine: (take = 5) =>
     api.get<{
       unread: number;
       items: Array<{
@@ -215,7 +246,7 @@ export function getChatHubUrl(): string {
 
 /** Fotoğraf görüntüsü için auth header'lı Image source */
 export async function getPhotoImageSource(photoId: string) {
-  const token = await SecureStore.getItemAsync('user_token');
+  const token = await getAccessToken();
   return {
     uri: photosApi.imageUri(photoId),
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,

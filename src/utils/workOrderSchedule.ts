@@ -5,6 +5,18 @@ export function isArızaWorkOrder(order: Pick<WorkOrder, 'type' | 'category'>): 
   return combined.includes('arıza') || combined.includes('ariza');
 }
 
+/** API'den gelen durumu mobilde olduğu gibi göster (Bekliyor saklanmaz). */
+export function displayWorkOrderStatus(status?: string | null): string {
+  const s = (status ?? '').trim();
+  if (!s) return 'Bekliyor';
+  return s;
+}
+
+export function isWorkOrderFinished(status?: string | null): boolean {
+  const s = (status ?? '').trim();
+  return s === 'Tamamlandı' || s === 'İptal' || s === 'İptal Edildi';
+}
+
 /** API UTC zamanını Date'e çevirir ("yyyy-MM-dd HH:mm" UTC kabul edilir). */
 export function parseWorkOrderDate(value?: string | null): Date | null {
   if (!value?.trim()) return null;

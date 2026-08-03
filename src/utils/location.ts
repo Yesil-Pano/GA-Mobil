@@ -97,6 +97,8 @@ async function fetchLastKnownLocation(): Promise<Coordinates | null> {
 async function ensureForegroundPermission(): Promise<boolean> {
   const current = await Location.getForegroundPermissionsAsync();
   if (current.status === 'granted') return true;
+  if (current.status === 'denied') return false;
+
   const requested = await Location.requestForegroundPermissionsAsync();
   return requested.status === 'granted';
 }

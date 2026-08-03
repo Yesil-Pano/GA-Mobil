@@ -31,8 +31,18 @@ import {
   unregisterPushToken,
   addNotificationResponseListener,
 } from './src/utils/pushNotifications';
-import { workOrdersApi } from './src/services/api';
+import { workOrdersApi, authApi, notificationsApi } from './src/services/api';
 import type { WorkOrder } from './src/types';
+import { ensureBackgroundLocationPermission } from './src/utils/locationPermissions';
+import {
+  clearSessionTokens,
+  getAccessToken,
+  getRefreshToken,
+  hasStoredSession,
+  shouldRefreshAccessToken,
+  tryRefreshSession,
+} from './src/utils/sessionTokens';
+import { filterWorkOrdersForUser, getCurrentUserId } from './src/utils/workOrders';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 import type { WorkOrdersStackParamList, RootTabParamList } from './src/types';
@@ -60,6 +70,7 @@ function AppShell() {
   const { colors, isDark } = useTheme();
   const [authState, setAuthState] = useState<'loading' | 'authenticated' | 'unauthenticated'>('loading');
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationUnread, setNotificationUnread] = useState(0);
   const [chatUnread, setChatUnread] = useState(0);
   const foregroundTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const pushTokenRef = React.useRef<string | null>(null);
@@ -69,15 +80,77 @@ function AppShell() {
 
   const checkLoginStatus = async () => {
     try {
-      const token      = await SecureStore.getItemAsync('user_token');
-      const rememberMe = await SecureStore.getItemAsync('remember_me');
-      if (token && rememberMe === 'true') {
-        setAuthState('authenticated');
-      } else {
+      const hasSession = await hasStoredSession();
+      if (!hasSession) {
         setAuthState('unauthenticated');
+        return;
       }
+
+      let token = await getAccessToken();
+      if (!token) {
+        const refreshed = await tryRefreshSession();
+        if (!refreshed) {
+          setAuthState('unauthenticated');
+          return;
+        }
+      } else if (shouldRefreshAccessToken(token, 60 * 24)) {
+        await tryRefreshSession();
+      }
+
+      await SecureStore.setItemAsync('remember_me', 'true');
+      setAuthState('authenticated');
     } catch {
       setAuthState('unauthenticated');
+    }
+  };
+
+  const navigateFromPush = async (data: Record<string, unknown>) => {
+    const type = String(data.type ?? '');
+    const workOrderId = data.workOrderId ? String(data.workOrderId) : null;
+
+    if (type === 'ChatMessage') {
+      navigationRef.current?.navigate?.('Sohbet');
+      return;
+    }
+
+    const isWorkOrderNotification =
+      type === 'WorkOrderAssigned' ||
+      type === 'WorkOrderCreated' ||
+      type === 'WorkOrderPeriodic' ||
+      type === 'WorkOrderStatusChanged';
+
+    if (isWorkOrderNotification && workOrderId) {
+      try {
+        const [{ data: orders }, userId] = await Promise.all([
+          workOrdersApi.getAll(),
+          getCurrentUserId(),
+        ]);
+        const mine = filterWorkOrdersForUser(orders, userId);
+        const found = mine.find((o: WorkOrder) => o.id === workOrderId);
+        if (found) {
+          navigationRef.current?.navigate?.('İş Emirleri', {
+            screen: 'WorkOrderDetail',
+            params: { workOrder: found },
+          });
+          return;
+        }
+      } catch (err) {
+        console.warn('[App] Push deep link WO yüklenemedi:', err);
+      }
+      return;
+    }
+
+    if (isWorkOrderNotification) {
+      navigationRef.current?.navigate?.('İş Emirleri');
+    }
+  };
+
+  const refreshNotificationUnread = async () => {
+    try {
+      const { data } = await notificationsApi.getMine(5);
+      setNotificationUnread(data.unread ?? 0);
+    } catch {
+      /* sessiz */
     }
   };
 
@@ -88,10 +161,19 @@ function AppShell() {
     await stopBackgroundLocation();
     await unregisterPushToken(pushTokenRef.current);
     pushTokenRef.current = null;
-    await SecureStore.deleteItemAsync('user_token');
+    try {
+      const refreshToken = await getRefreshToken();
+      if (refreshToken) {
+        await authApi.logout({ refreshToken }).catch(() => undefined);
+      }
+    } catch {
+      /* ignore */
+    }
+    await clearSessionTokens();
     await SecureStore.deleteItemAsync('user_id');
     await SecureStore.deleteItemAsync('user_name');
     await SecureStore.deleteItemAsync('remember_me');
+    setNotificationUnread(0);
     setAuthState('unauthenticated');
   };
 
@@ -122,50 +204,19 @@ function AppShell() {
   useEffect(() => {
     if (authState !== 'authenticated') return;
 
-    const navigateFromPush = async (data: Record<string, unknown>) => {
-      const type = String(data.type ?? '');
-      const workOrderId = data.workOrderId ? String(data.workOrderId) : null;
-
-      if (type === 'ChatMessage') {
-        navigationRef.current?.navigate?.('Sohbet');
-        return;
-      }
-
-      if ((type === 'WorkOrderAssigned' || type === 'WorkOrderCreated') && workOrderId) {
-        try {
-          const { data: orders } = await workOrdersApi.getAll();
-          const found = orders.find((o: WorkOrder) => o.id === workOrderId);
-          if (found) {
-            navigationRef.current?.navigate?.('İş Emirleri', {
-              screen: 'WorkOrderDetail',
-              params: { workOrder: found },
-            });
-            return;
-          }
-        } catch (err) {
-          console.warn('[App] Push deep link WO yüklenemedi:', err);
-        }
-        navigationRef.current?.navigate?.('İş Emirleri', {
-          screen: 'WorkOrderDetail',
-          params: { workOrderId },
-        });
-        return;
-      }
-
-      if (type === 'WorkOrderAssigned' || type === 'WorkOrderCreated') {
-        navigationRef.current?.navigate?.('İş Emirleri');
-      }
+    const navigateFromPushHandler = async (data: Record<string, unknown>) => {
+      await navigateFromPush(data);
     };
 
     const sub = addNotificationResponseListener((data) => {
-      void navigateFromPush(data);
+      void navigateFromPushHandler(data);
     });
 
     (async () => {
       try {
         const last = await Notifications.getLastNotificationResponseAsync();
         if (last?.notification?.request?.content?.data) {
-          await navigateFromPush(last.notification.request.content.data as Record<string, unknown>);
+          await navigateFromPushHandler(last.notification.request.content.data as Record<string, unknown>);
         }
       } catch {
         /* ignore */
@@ -175,7 +226,14 @@ function AppShell() {
     return () => sub.remove();
   }, [authState]);
 
-  // ── Konum gönder (arka plan görevinden bağımsız, her zaman çalışır) ──────────
+  useEffect(() => {
+    if (authState !== 'authenticated') return;
+    void refreshNotificationUnread();
+    const interval = setInterval(() => void refreshNotificationUnread(), 45_000);
+    return () => clearInterval(interval);
+  }, [authState]);
+
+  // ── Konum gönder (arka plan görevinden bağımsız, her zaman çalışır) ────────── (arka plan görevinden bağımsız, her zaman çalışır) ──────────
   const sendCurrentLocation = async () => {
     try {
       const loc = await resolveUserLocation({ preferCached: true, gpsTimeoutMs: 4_000 });
@@ -212,8 +270,8 @@ function AppShell() {
   // ── Arka plan görevi — sadece production APK'da tam çalışır ─────────────────
   const startBackgroundLocation = async () => {
     try {
-      const { status: bg } = await Location.requestBackgroundPermissionsAsync();
-      if (bg !== 'granted') return;
+      const bgGranted = await ensureBackgroundLocationPermission();
+      if (!bgGranted) return;
       const isRunning = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
       if (!isRunning) {
         await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
@@ -283,13 +341,20 @@ function AppShell() {
     };
   }, [authState]);
 
-  // Uygulama ön plana gelince tek seferlik konum gönder (düşük pil maliyeti)
+  // Uygulama ön plana gelince konum gönder + sessiz token yenile
   useEffect(() => {
     if (authState !== 'authenticated') return;
 
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
         sendCurrentLocation();
+        void (async () => {
+          const token = await getAccessToken();
+          if (token && shouldRefreshAccessToken(token, 15)) {
+            await tryRefreshSession();
+          }
+        })();
+        void refreshNotificationUnread();
       }
     });
 
@@ -366,17 +431,19 @@ function AppShell() {
                   accessibilityLabel="Bildirimleri aç"
                 >
                   <Ionicons name="notifications-outline" size={23} color="#fff" />
-                  <View
-                    style={{
-                      position: 'absolute',
-                      top: -3,
-                      right: -3,
-                      backgroundColor: colors.danger,
-                      width: 9,
-                      height: 9,
-                      borderRadius: 5,
-                    }}
-                  />
+                  {notificationUnread > 0 && (
+                    <View
+                      style={{
+                        position: 'absolute',
+                        top: -3,
+                        right: -3,
+                        backgroundColor: colors.danger,
+                        width: 9,
+                        height: 9,
+                        borderRadius: 5,
+                      }}
+                    />
+                  )}
                 </TouchableOpacity>
                 <TouchableOpacity onPress={handleLogout}>
                   <Ionicons name="power-outline" size={24} color="#fff" />
@@ -428,7 +495,12 @@ function AppShell() {
           </Tab.Screen>
         </Tab.Navigator>
       )}
-      <NotificationPanel visible={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
+      <NotificationPanel
+        visible={notificationsOpen}
+        onClose={() => setNotificationsOpen(false)}
+        onUnreadChange={setNotificationUnread}
+        onNavigate={(payload) => void navigateFromPush(payload)}
+      />
     </NavigationContainer>
     </SafeAreaProvider>
   );
