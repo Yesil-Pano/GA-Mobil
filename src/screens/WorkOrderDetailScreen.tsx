@@ -71,6 +71,8 @@ import {
 } from '../constants/photos';
 
 import PhotoSection, { usePhotoBuckets } from '../components/PhotoSection';
+import OpeningAttachmentsSection, { mapOpeningAttachmentsFromApi } from '../components/OpeningAttachmentsSection';
+import { isOpeningAttachment } from '../constants/photos';
 import { isTeslaCompany } from '../utils/partners';
 import { useTheme, fs } from '../theme/ThemeContext';
 import * as SecureStore from 'expo-secure-store';
@@ -166,6 +168,7 @@ export default function WorkOrderDetailScreen({ route }: Props) {
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
 
   const [savedPhotos, setSavedPhotos] = useState<SavedPhotoItem[]>([]);
+  const [openingAttachments, setOpeningAttachments] = useState<SavedPhotoItem[]>([]);
 
   const [loadingAttachments, setLoadingAttachments] = useState(true);
 
@@ -279,9 +282,13 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
       const { data } = await photosApi.list('WorkOrder', order.id);
 
+      setOpeningAttachments(await mapOpeningAttachmentsFromApi(data));
+
+      const fieldRows = data.filter((p) => !isOpeningAttachment(p.description));
+
       const items = await Promise.all(
 
-        data.map(async (p) => {
+        fieldRows.map(async (p) => {
 
           const source = await getPhotoImageSource(p.id);
 
@@ -308,6 +315,7 @@ export default function WorkOrderDetailScreen({ route }: Props) {
     } catch {
 
       setSavedPhotos([]);
+      setOpeningAttachments([]);
 
     } finally {
 
@@ -883,6 +891,10 @@ export default function WorkOrderDetailScreen({ route }: Props) {
           )}
 
         </View>
+
+
+
+        <OpeningAttachmentsSection items={openingAttachments} loading={loadingAttachments} />
 
 
 

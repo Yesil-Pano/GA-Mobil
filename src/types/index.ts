@@ -160,6 +160,8 @@ export interface SavedPhotoItem {
   fileName: string;
   category: PhotoCategory | null;
   headers?: Record<string, string>;
+  contentType?: string;
+  isVideo?: boolean;
 }
 
 // ─── Navigation Param Lists ───────────────────────────────────────────────────

@@ -2,7 +2,7 @@
   "expo": {
     "name": "Görev Adamı",
     "slug": "GA-Mobil",
-    "version": "1.0.17",
+    "version": "1.0.19",
     "orientation": "portrait",
     "newArchEnabled": true,
     "updates": {
@@ -32,7 +32,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "package": "com.theobuz.GAMobil",
-      "versionCode": 17,
+      "versionCode": 19,
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",

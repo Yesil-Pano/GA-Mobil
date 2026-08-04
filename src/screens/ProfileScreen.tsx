@@ -271,7 +271,7 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
           <Ionicons name="information-circle-outline" size={18} color={colors.muted} style={styles.settingIcon} />
           <Text style={[styles.settingText, { color: colors.textSecondary, fontSize: fs(14) }]}>Versiyon</Text>
           <Text style={{ color: colors.faint, fontSize: fs(13) }}>
-            {Constants.expoConfig?.version ?? Constants.nativeAppVersion ?? '—'}
+            v{Constants.expoConfig?.version ?? Constants.nativeAppVersion ?? '—'}
           </Text>
         </View>
       </View>
