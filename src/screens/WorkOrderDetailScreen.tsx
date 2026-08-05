@@ -33,6 +33,7 @@ import type { WorkOrdersStackParamList, RootTabParamList, WorkOrder } from '../t
 import { workOrdersApi, photosApi, getPhotoImageSource } from '../services/api';
 
 import { extractApiErrorMessage, ensureAlertMessage, filterWorkOrdersForUser, getCurrentUserId } from '../utils/workOrders';
+import { parseWorkOrderCoords } from '../utils/workOrderCoords';
 import { filterMobileVisibleWorkOrders } from '../utils/workOrderSchedule';
 
 function resolveWorkOrderForDetail(orders: WorkOrder[], userId: string | null, targetId: string): WorkOrder | undefined {
@@ -614,31 +615,19 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
 
   const handleShowOnMap = () => {
-
-    const lat = order.position?.[0];
-
-    const lng = order.position?.[1];
-
-    if (!lat || !lng || (lat === 0 && lng === 0)) {
-
+    const coords = parseWorkOrderCoords(order);
+    if (!coords) {
       Alert.alert('Konum Yok', 'Bu iş emrinde kayıtlı konum bilgisi bulunmuyor.');
-
       return;
-
     }
 
     const parentNav = navigation.getParent<NativeStackNavigationProp<RootTabParamList>>();
 
     parentNav?.navigate('Harita', {
-
-      focusLatitude: lat,
-
-      focusLongitude: lng,
-
+      focusLatitude: coords.latitude,
+      focusLongitude: coords.longitude,
       focusLabel: order.customerName || order.title || 'İş Emri',
-
     });
-
   };
 
 
@@ -763,7 +752,7 @@ export default function WorkOrderDetailScreen({ route }: Props) {
 
 
 
-          {order.position?.[0] !== 0 && order.position?.[0] != null && (
+          {parseWorkOrderCoords(order) != null && (
 
             <TouchableOpacity style={styles.mapBtn} onPress={handleShowOnMap}>
 

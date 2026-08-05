@@ -12,12 +12,13 @@ import {
   Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRoute } from '@react-navigation/native';
+import { useRoute, useFocusEffect } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import OsmMapView, { type OsmMapViewRef, type OsmMarker } from '../components/OsmMapView';
 import { workOrdersApi } from '../services/api';
 import { extractApiErrorMessage, getCurrentUserId, ensureAlertMessage } from '../utils/workOrders';
 import { filterMobileVisibleWorkOrders } from '../utils/workOrderSchedule';
+import { parseWorkOrderCoords } from '../utils/workOrderCoords';
 import { resolveUserLocation } from '../utils/location';
 import type { WorkOrder, RootTabParamList } from '../types';
 import { useTheme } from '../theme/ThemeContext';
@@ -68,6 +69,10 @@ export default function MapScreen() {
     setLoading(true);
     try {
       const [res, userId] = await Promise.all([workOrdersApi.getAll(), getCurrentUserId()]);
+      if (!userId) {
+        setWorkOrders([]);
+        return;
+      }
       const mine = filterMobileVisibleWorkOrders(res.data, userId);
       setWorkOrders(mine);
       setLastRefreshed(new Date());
@@ -87,6 +92,12 @@ export default function MapScreen() {
   useEffect(() => {
     loadWorkOrders();
   }, [loadWorkOrders]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadWorkOrders();
+    }, [loadWorkOrders]),
+  );
 
   useEffect(() => {
     if (!mapReady) return;
@@ -149,31 +160,72 @@ export default function MapScreen() {
 
   const goToAnkara = () => mapRef.current?.animateToRegion(DEFAULT_REGION, 600);
 
-  const mappedOrders = workOrders.filter(
-    (o) => Array.isArray(o.position) && o.position[0] !== 0 && o.position[1] !== 0,
+  const mappedOrders = useMemo(
+    () =>
+      workOrders
+        .map((order) => ({ order, coords: parseWorkOrderCoords(order) }))
+        .filter((entry): entry is { order: WorkOrder; coords: { latitude: number; longitude: number } } =>
+          entry.coords != null,
+        ),
+    [workOrders],
   );
+
+  const focusCoords = useMemo(() => {
+    const params = route.params;
+    if (params?.focusLatitude == null || params?.focusLongitude == null) return null;
+    const lat = Number(params.focusLatitude);
+    const lng = Number(params.focusLongitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return null;
+    return {
+      latitude: lat,
+      longitude: lng,
+      label: params.focusLabel?.trim() || 'İş Emri',
+    };
+  }, [route.params]);
 
   const markers = useMemo(() => {
     const next: OsmMarker[] = [];
     const index = new Map<string, { lat: number; lng: number; label: string }>();
+    const seen = new Set<string>();
 
-    mappedOrders.forEach((order) => {
+    mappedOrders.forEach(({ order, coords }) => {
       const id = `wo-${order.id}`;
       const label = order.customerName || order.title || 'İş Emri';
       next.push({
         id,
-        latitude: order.position[0],
-        longitude: order.position[1],
+        latitude: coords.latitude,
+        longitude: coords.longitude,
         title: label,
         description: buildMarkerDescription(order),
         color: '#F97316',
       });
-      index.set(id, { lat: order.position[0], lng: order.position[1], label });
+      index.set(id, { lat: coords.latitude, lng: coords.longitude, label });
+      seen.add(`${coords.latitude.toFixed(6)}:${coords.longitude.toFixed(6)}`);
     });
+
+    if (focusCoords) {
+      const focusKey = `${focusCoords.latitude.toFixed(6)}:${focusCoords.longitude.toFixed(6)}`;
+      if (!seen.has(focusKey)) {
+        const id = 'focus-work-order';
+        next.push({
+          id,
+          latitude: focusCoords.latitude,
+          longitude: focusCoords.longitude,
+          title: focusCoords.label,
+          description: 'Seçili iş emri konumu',
+          color: '#F97316',
+        });
+        index.set(id, {
+          lat: focusCoords.latitude,
+          lng: focusCoords.longitude,
+          label: focusCoords.label,
+        });
+      }
+    }
 
     markerIndexRef.current = index;
     return next;
-  }, [mappedOrders]);
+  }, [mappedOrders, focusCoords]);
 
   const handleNavigatePress = useCallback((markerId: string) => {
     const target = markerIndexRef.current.get(markerId);

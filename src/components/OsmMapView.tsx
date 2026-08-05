@@ -43,6 +43,10 @@ const MAP_HTML = `<!DOCTYPE html>
     .leaflet-container { background: #0F172A; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
     .leaflet-popup-content-wrapper { border-radius: 10px; }
     .leaflet-popup-content { margin: 10px 12px; font-size: 13px; line-height: 1.35; }
+    .ga-marker-icon {
+      background: transparent !important;
+      border: none !important;
+    }
   </style>
 </head>
 <body>
@@ -83,7 +87,7 @@ const MAP_HTML = `<!DOCTYPE html>
       markerLayer.clearLayers();
       (markers || []).forEach((m) => {
         const icon = L.divIcon({
-          className: '',
+          className: 'ga-marker-icon',
           html: stationMarkerHtml(),
           iconSize: [34, 43],
           iconAnchor: [17, 43],
@@ -109,7 +113,7 @@ const MAP_HTML = `<!DOCTYPE html>
         return;
       }
       const icon = L.divIcon({
-        className: '',
+        className: 'ga-marker-icon',
         html: '<div style="width:16px;height:16px;border-radius:50%;background:#3B82F6;border:3px solid #fff;box-shadow:0 0 0 6px rgba(59,130,246,.25);"></div>',
         iconSize: [16, 16],
         iconAnchor: [8, 8],
