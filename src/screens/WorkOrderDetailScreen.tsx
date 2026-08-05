@@ -200,7 +200,9 @@ export default function WorkOrderDetailScreen({ route }: Props) {
   }, [order?.id]);
 
   const isFinished = isWorkOrderFinished(currentStatus);
-  const showStartButton = order ? canShowStartWorkOrder({ status: currentStatus, startedAt }) : false;
+  const showStartButton = order
+    ? canShowStartWorkOrder({ status: currentStatus, startedAt, assignedToUserId: order.assignedToUserId })
+    : false;
   const showProgressActions = order ? shouldShowInProgressActions({ status: currentStatus, startedAt }) : false;
 
   const buckets = usePhotoBuckets(photos, savedPhotos);

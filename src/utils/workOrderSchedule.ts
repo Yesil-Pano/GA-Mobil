@@ -20,11 +20,14 @@ export function isWorkOrderFinished(status?: string | null): boolean {
   return s === 'Tamamlandı' || s === 'İptal' || s === 'İptal Edildi';
 }
 
-/** Saha henüz işe başlamadıysa İşe Başla göster (Bekliyor veya yanlış Devam Ediyor kaydı). */
-export function canShowStartWorkOrder(order: Pick<WorkOrder, 'status' | 'startedAt'>): boolean {
+/** Saha henüz işe başlamadıysa İşe Başla göster (Bekliyor veya yanlış Devam Ediyor / Atanmamış kaydı). */
+export function canShowStartWorkOrder(
+  order: Pick<WorkOrder, 'status' | 'startedAt' | 'assignedToUserId'>,
+): boolean {
   if (isWorkOrderFinished(order.status)) return false;
   const status = displayWorkOrderStatus(order.status);
   if (status === 'Bekliyor') return true;
+  if (status === 'Atanmamış' && order.assignedToUserId) return true;
   if (status === 'Devam Ediyor' && !order.startedAt?.trim()) return true;
   return false;
 }
