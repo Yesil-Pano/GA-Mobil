@@ -7,18 +7,49 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
-  Modal,
-  Platform,
-  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import AuthorizationDocumentViewer from '../components/AuthorizationDocumentViewer';
 import { usersApi } from '../services/api';
 import type { UserProfile } from '../types';
 import { useTheme } from '../theme/ThemeContext';
+
+function parseApiError(err: unknown, fallback: string): string {
+  const e = err as { response?: { data?: unknown; status?: number }; message?: string };
+  const data = e.response?.data;
+  if (data instanceof ArrayBuffer) {
+    try {
+      const text = new TextDecoder('utf-8').decode(new Uint8Array(data)).trim();
+      if (!text) return fallback;
+      try {
+        const json = JSON.parse(text) as { message?: string; Message?: string };
+        return json.message || json.Message || text;
+      } catch {
+        return text.slice(0, 200);
+      }
+    } catch {
+      return fallback;
+    }
+  }
+  if (data && typeof data === 'object') {
+    const json = data as { message?: string; Message?: string };
+    if (json.message) return json.message;
+    if (json.Message) return json.Message;
+  }
+  if (typeof data === 'string' && data.trim()) return data.trim();
+  if (e.response?.status === 404) return 'Yetki belgesi bulunamadı.';
+  return e.message || fallback;
+}
+
+function isPdfArrayBuffer(buffer: ArrayBuffer): boolean {
+  if (buffer.byteLength < 5) return false;
+  const bytes = new Uint8Array(buffer);
+  return bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46;
+}
 
 function InfoRow({
   label,
@@ -55,8 +86,11 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [authBusy, setAuthBusy] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
   const [pdfModalVisible, setPdfModalVisible] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [localPdfUri, setLocalPdfUri] = useState<string | null>(null);
+  const [pdfBase64, setPdfBase64] = useState<string | null>(null);
 
   const fetchProfile = useCallback(async () => {
     setLoading(true);
@@ -85,6 +119,9 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
 
   const downloadAuthPdf = async (): Promise<string | null> => {
     const { data } = await usersApi.getAuthorizationDocument();
+    if (!isPdfArrayBuffer(data)) {
+      throw new Error('Sunucudan geçerli bir PDF alınamadı.');
+    }
     const base64 = arrayBufferToBase64(data);
     const dir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
     if (!dir) throw new Error('Dosya dizini yok');
@@ -101,28 +138,22 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
       return;
     }
     setAuthBusy(true);
+    setPdfLoading(true);
+    setPdfModalVisible(true);
     try {
       const path = await downloadAuthPdf();
       if (!path) return;
+      const base64 = await FileSystem.readAsStringAsync(path, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
       setLocalPdfUri(path);
-      setPdfModalVisible(true);
-      if (Platform.OS === 'android' && typeof FileSystem.getContentUriAsync === 'function') {
-        const contentUri = await FileSystem.getContentUriAsync(path);
-        await Linking.openURL(contentUri);
-      } else {
-        const canShare = await Sharing.isAvailableAsync();
-        if (canShare) {
-          await Sharing.shareAsync(path, {
-            mimeType: 'application/pdf',
-            dialogTitle: 'Yetki Belgesi',
-            UTI: 'com.adobe.pdf',
-          });
-        }
-      }
-    } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.message || err?.message || 'Yetki belgesi açılamadı.');
+      setPdfBase64(base64);
+    } catch (err: unknown) {
+      setPdfModalVisible(false);
+      Alert.alert('Hata', parseApiError(err, 'Yetki belgesi açılamadı.'));
     } finally {
       setAuthBusy(false);
+      setPdfLoading(false);
     }
   };
 
@@ -131,7 +162,7 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
       Alert.alert('Yetki Belgesi', 'Yüklenmiş yetki belgesi bulunamadı.');
       return;
     }
-    setAuthBusy(true);
+    setShareBusy(true);
     try {
       const path = localPdfUri ?? (await downloadAuthPdf());
       if (!path) return;
@@ -143,14 +174,20 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
       }
       await Sharing.shareAsync(path, {
         mimeType: 'application/pdf',
-        dialogTitle: 'Yetki Belgesi Paylaş',
+        dialogTitle: profile.authorizationDocumentFileName || 'Yetki Belgesi',
         UTI: 'com.adobe.pdf',
       });
-    } catch (err: any) {
-      Alert.alert('Hata', err?.response?.data?.message || err?.message || 'Paylaşılamadı.');
+    } catch (err: unknown) {
+      Alert.alert('Hata', parseApiError(err, 'Paylaşılamadı.'));
     } finally {
-      setAuthBusy(false);
+      setShareBusy(false);
     }
+  };
+
+  const closePdfModal = () => {
+    setPdfModalVisible(false);
+    setPdfBase64(null);
+    setPdfLoading(false);
   };
 
   const handleLogout = () => {
@@ -210,34 +247,60 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
         <Text style={[styles.sectionTitle, { color: colors.faint, fontSize: fs(11) }]}>Yetki Belgesi</Text>
         {profile?.hasAuthorizationDocument ? (
           <>
-            <Text style={{ color: colors.textSecondary, fontSize: fs(13), marginBottom: 12 }} numberOfLines={2}>
-              📄 {profile.authorizationDocumentFileName || 'yetki-belgesi.pdf'}
-            </Text>
-            <View style={{ flexDirection: 'row', gap: 10 }}>
+            <View style={[styles.authFileRow, { backgroundColor: colors.bg, borderColor: colors.border }]}>
+              <View style={[styles.authFileIcon, { backgroundColor: colors.orange + '22' }]}>
+                <Ionicons name="document-text" size={22} color={colors.orange} />
+              </View>
+              <View style={styles.authFileMeta}>
+                <Text style={{ color: colors.text, fontSize: fs(14), fontWeight: '600' }} numberOfLines={2}>
+                  {profile.authorizationDocumentFileName || 'yetki-belgesi.pdf'}
+                </Text>
+                {profile.authorizationDocumentFileSize ? (
+                  <Text style={{ color: colors.muted, fontSize: fs(12), marginTop: 3 }}>
+                    PDF · {formatFileSize(profile.authorizationDocumentFileSize)}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+            <View style={styles.authActions}>
               <TouchableOpacity
-                style={[styles.authBtn, { backgroundColor: colors.info, opacity: authBusy ? 0.6 : 1 }]}
+                style={[styles.authPrimaryBtn, { backgroundColor: colors.orange, opacity: authBusy ? 0.65 : 1 }]}
                 onPress={handleViewAuthDoc}
                 disabled={authBusy}
               >
-                <Ionicons name="eye-outline" size={18} color="#fff" />
-                <Text style={{ color: '#fff', fontWeight: '700', fontSize: fs(13) }}>
-                  {authBusy ? '…' : 'Tam Ekran'}
+                {authBusy ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Ionicons name="eye-outline" size={18} color="#fff" />
+                )}
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: fs(14) }}>
+                  {authBusy ? 'Açılıyor…' : 'Belgeyi Görüntüle'}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.authBtn, { backgroundColor: colors.orange, opacity: authBusy ? 0.6 : 1 }]}
+                style={[
+                  styles.authIconBtn,
+                  { borderColor: colors.border, backgroundColor: colors.bg, opacity: shareBusy ? 0.65 : 1 },
+                ]}
                 onPress={handleShareAuthDoc}
-                disabled={authBusy}
+                disabled={shareBusy || authBusy}
+                accessibilityLabel="Paylaş"
               >
-                <Ionicons name="share-social-outline" size={18} color="#fff" />
-                <Text style={{ color: '#fff', fontWeight: '700', fontSize: fs(13) }}>Paylaş</Text>
+                {shareBusy ? (
+                  <ActivityIndicator size="small" color={colors.orange} />
+                ) : (
+                  <Ionicons name="share-outline" size={20} color={colors.orange} />
+                )}
               </TouchableOpacity>
             </View>
           </>
         ) : (
-          <Text style={{ color: colors.muted, fontSize: fs(13) }}>
-            Henüz yetki belgesi yüklenmemiş. Web panelinden Admin yükleyebilir.
-          </Text>
+          <View style={[styles.authEmpty, { backgroundColor: colors.bg, borderColor: colors.border }]}>
+            <Ionicons name="document-outline" size={28} color={colors.faint} />
+            <Text style={{ color: colors.muted, fontSize: fs(13), textAlign: 'center', marginTop: 8, lineHeight: 20 }}>
+              Henüz yetki belgesi yüklenmemiş.{'\n'}Web panelinden Admin yükleyebilir.
+            </Text>
+          </View>
         )}
       </View>
 
@@ -284,37 +347,26 @@ export default function ProfileScreen({ onLogout }: ProfileScreenProps) {
         <Text style={{ color: colors.danger, fontSize: fs(16), fontWeight: '700' }}>Çıkış Yap</Text>
       </TouchableOpacity>
 
-      <Modal visible={pdfModalVisible} animationType="slide" onRequestClose={() => setPdfModalVisible(false)}>
-        <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: Platform.OS === 'ios' ? 54 : 24 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginBottom: 12 }}>
-            <Text style={{ color: colors.text, fontSize: fs(16), fontWeight: '700' }}>Yetki Belgesi</Text>
-            <TouchableOpacity onPress={() => setPdfModalVisible(false)}>
-              <Ionicons name="close" size={28} color={colors.muted} />
-            </TouchableOpacity>
-          </View>
-          <View style={{ flex: 1, padding: 16, justifyContent: 'center', gap: 14 }}>
-            <Text style={{ color: colors.muted, fontSize: fs(14), textAlign: 'center' }}>
-              PDF sistem görüntüleyicide açıldı. Paylaşmak için aşağıdaki butonu kullanın.
-            </Text>
-            <TouchableOpacity
-              style={[styles.authBtn, { backgroundColor: colors.orange, alignSelf: 'center', paddingHorizontal: 24 }]}
-              onPress={handleShareAuthDoc}
-            >
-              <Ionicons name="share-social-outline" size={18} color="#fff" />
-              <Text style={{ color: '#fff', fontWeight: '700', fontSize: fs(14) }}>Paylaş (WhatsApp vb.)</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.authBtn, { backgroundColor: colors.header, alignSelf: 'center', paddingHorizontal: 24 }]}
-              onPress={handleViewAuthDoc}
-            >
-              <Ionicons name="open-outline" size={18} color="#fff" />
-              <Text style={{ color: '#fff', fontWeight: '700', fontSize: fs(14) }}>Tekrar Aç</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      <AuthorizationDocumentViewer
+        visible={pdfModalVisible}
+        fileName={profile?.authorizationDocumentFileName || 'yetki-belgesi.pdf'}
+        pdfBase64={pdfBase64}
+        loading={pdfLoading}
+        isDark={isDark}
+        colors={colors}
+        fs={fs}
+        onClose={closePdfModal}
+        onShare={handleShareAuthDoc}
+        shareBusy={shareBusy}
+      />
     </ScrollView>
   );
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -365,14 +417,46 @@ const styles = StyleSheet.create({
   settingRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 13, borderBottomWidth: 1 },
   settingIcon: { marginRight: 12 },
   settingText: { flex: 1 },
-  authBtn: {
+  authFileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  authFileIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  authFileMeta: { flex: 1, minWidth: 0 },
+  authActions: { flexDirection: 'row', gap: 10 },
+  authPrimaryBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    paddingVertical: 12,
+    height: 44,
     borderRadius: 12,
+  },
+  authIconBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  authEmpty: {
+    alignItems: 'center',
+    padding: 20,
+    borderRadius: 12,
+    borderWidth: 1,
   },
   logoutBtn: {
     flexDirection: 'row',
