@@ -60,6 +60,8 @@ export interface WorkOrder {
   translationProvider?: string | null;
   translatedAt?: string | null;
   tenantId?: string | null;
+  /** Nokta bakım kapsamı — Stations.StatusType eşlemesi */
+  stationStatusType?: string | null;
 }
 
 export interface CreateWorkOrderDto {

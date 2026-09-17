@@ -55,6 +55,7 @@ import {
   isWorkOrderFinished,
   canShowStartWorkOrder,
   shouldShowInProgressActions,
+  canFieldCloseWorkOrder,
 } from '../utils/workOrderSchedule';
 
 import {
@@ -551,6 +552,17 @@ export default function WorkOrderDetailScreen({ route }: Props) {
     if (!sahaNote.trim()) {
 
       Alert.alert('Eksik Bilgi', 'Lütfen "Saha Notu" alanını doldurun.');
+
+      return;
+
+    }
+
+    if (!canFieldCloseWorkOrder(order)) {
+
+      Alert.alert(
+        'Henüz Zamanı Gelmedi',
+        'Bu dönemin vadesi henüz gelmedi. Yalnızca bulunulan veya geçmiş dönem kapatılabilir.',
+      );
 
       return;
 

@@ -114,6 +114,15 @@ function WorkOrderCard({ order, index, onPress, colors, fs }: CardProps) {
             </Text>
           </View>
         )}
+        {!!order.stationStatusType && (
+          <View style={styles.cardRow}>
+            <Ionicons name="flag-outline" size={13} color={colors.muted} />
+            <Text style={{ color: colors.muted, fontSize: fs(12), flex: 1 }}>
+              <Text style={{ fontWeight: '700', color: colors.textSecondary }}>Nokta Durumu: </Text>
+              {order.stationStatusType}
+            </Text>
+          </View>
+        )}
 
         <View style={[styles.cardFooter, { borderTopColor: colors.border }]}>
           <Text style={{ color: colors.muted, fontSize: fs(12) }}>
